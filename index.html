@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>WO Timesheet Summary</title>
+</head>
+<body>
+
+<script id="app-logic">
+"use strict";
+
+function normalizeWO(s) {
+  return String(s == null ? '' : s).trim().toUpperCase();
+}
+
+function normalizeCategory(s) {
+  const key = String(s == null ? '' : s).trim().toUpperCase().replace(/[\s_-]+/g, '');
+  if (key === 'CAPEX') return 'CAPEX';
+  if (key === 'OPEX') return 'OPEX';
+  if (key === 'NONCHARGE' || key === 'NONCHARGEABLE' || key === 'NONCHARGABLE') return 'NON_CHARGE';
+  return null;
+}
+
+function parseMappingText(text) {
+  const lines = String(text == null ? '' : text).split(/\r\n|\r|\n/);
+  const map = {};
+  const skippedLines = [];
+  lines.forEach((line, i) => {
+    if (!line.trim()) return;
+    const cells = line.split('\t').map(c => c.trim());
+    if (cells.length < 2) { skippedLines.push(i + 1); return; }
+    const category = normalizeCategory(cells[1]);
+    const key = normalizeWO(cells[0]);
+    if (!category || !key) { skippedLines.push(i + 1); return; }
+    map[key] = { wo: cells[0], category: category, name: cells[2] || '' };
+  });
+  return { map: map, skippedLines: skippedLines };
+}
+
+function rowsFromPastedText(text) {
+  const lines = String(text == null ? '' : text).split(/\r\n|\r|\n/).filter(l => l.trim() !== '');
+  return lines.slice(1).map(line => line.split('\t'));
+}
+
+function parseNum(v) {
+  if (v == null) return { ok: true, value: 0 };
+  const s = String(v).trim();
+  if (s === '') return { ok: true, value: 0 };
+  const n = Number(s.replace(/,/g, ''));
+  return isNaN(n) ? { ok: false, value: 0 } : { ok: true, value: n };
+}
+
+function parseDataRows(rowArrays) {
+  const rows = [];
+  const skippedRows = [];
+  rowArrays.forEach((r, i) => {
+    const rowNumber = i + 1;
+    if (!r || r.length < 5) { skippedRows.push(rowNumber); return; }
+    const name = (r[0] || '').toString().trim();
+    const sq = (r[1] || '').toString().trim() || '(Unspecified)';
+    const woNo = (r[2] || '').toString().trim();
+    const woName = (r[3] || '').toString().trim();
+    if (!woNo) { skippedRows.push(rowNumber); return; }
+    const daily = r.slice(5, 36);
+    let mh = 0;
+    let badCell = false;
+    for (const cell of daily) {
+      const parsed = parseNum(cell);
+      if (!parsed.ok) { badCell = true; break; }
+      mh += parsed.value;
+    }
+    if (badCell) { skippedRows.push(rowNumber); return; }
+    rows.push({ rowNumber, name, sq, woNo, woName, mh });
+  });
+  return { rows, skippedRows };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText,
+    parseNum, parseDataRows
+  };
+}
+</script>
+
+</body>
+</html>
