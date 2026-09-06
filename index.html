@@ -217,5 +217,65 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 </script>
 
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; padding: 8px; }
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  button { padding: 6px 14px; cursor: pointer; }
+  #run-btn { font-size: 1rem; padding: 10px 24px; margin: 16px 0; }
+  .upload-btn { display: inline-block; padding: 6px 14px; border: 1px solid currentColor; border-radius: 4px; cursor: pointer; }
+  .banner { padding: 10px 14px; border-radius: 4px; margin: 8px 0; font-size: 0.9rem; white-space: pre-wrap; }
+  .banner.warn { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
+  .banner.error { background: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
+  .table-actions { display: flex; gap: 8px; margin: 8px 0; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 8px; font-size: 0.85rem; }
+  th, td { border: 1px solid #999; padding: 4px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  tr.summary-row { font-weight: bold; background: rgba(127,127,127,0.15); }
+  .table-scroll { overflow-x: auto; }
+</style>
+
+<h1>WO Timesheet Summary</h1>
+
+<h2>1. WO Mapping</h2>
+<p>วางตาราง WO No. / Category (CAPEX, OPEX, Non Charge) / WO Name (ถ้ามี) แยกด้วย Tab เช่นคัดลอกมาจาก Excel</p>
+<textarea id="mapping-input" rows="8" placeholder="WO No.&#9;Category&#9;WO Name"></textarea>
+<div class="row">
+  <button id="clear-mapping-btn" type="button">Clear</button>
+  <span id="mapping-status"></span>
+</div>
+
+<h2>2. Timesheet Input</h2>
+<p>วางช่วง A2:AL13 จาก Excel หรืออัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx</p>
+<textarea id="timesheet-input" rows="10" placeholder="Name-Surname&#9;SQ&#9;WO No.&#9;WO Name&#9;FTE/OS&#9;..."></textarea>
+<div class="row">
+  <label class="upload-btn">Upload .xlsx<input type="file" id="xlsx-upload" accept=".xlsx" hidden></label>
+  <span id="upload-status"></span>
+</div>
+
+<div>
+  <button id="run-btn" type="button">&#9654; Run</button>
+</div>
+<div id="banners"></div>
+
+<h2>Table 1: Squad &times; WO (CAPEX / OPEX / Non Charge)</h2>
+<div class="table-actions">
+  <button id="copy-table1-btn" type="button">Copy</button>
+  <button id="download-table1-btn" type="button">Download CSV</button>
+</div>
+<div id="table1-container" class="table-scroll"></div>
+
+<h2>Table 2: % CAPEX / OPEX per Squad</h2>
+<div class="table-actions">
+  <button id="copy-table2-btn" type="button">Copy</button>
+  <button id="download-table2-btn" type="button">Download CSV</button>
+</div>
+<div id="table2-container" class="table-scroll"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
 </body>
 </html>
