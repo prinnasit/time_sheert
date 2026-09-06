@@ -75,10 +75,89 @@ function parseDataRows(rowArrays) {
   return { rows, skippedRows };
 }
 
+function classifyRows(rows, mapping) {
+  const map = mapping.map;
+  const unmappedSet = {};
+  const classified = rows.map(row => {
+    const key = normalizeWO(row.woNo);
+    const entry = map[key];
+    const category = entry ? entry.category : 'UNMAPPED';
+    const woLabel = (entry && entry.name) || row.woName || row.woNo;
+    if (!entry) unmappedSet[row.woNo] = true;
+    return Object.assign({}, row, { category, woKey: key, woLabel });
+  });
+  return { rows: classified, unmappedWOs: Object.keys(unmappedSet) };
+}
+
+const CATEGORY_ORDER = ['CAPEX', 'OPEX', 'NON_CHARGE', 'UNMAPPED'];
+const CATEGORY_LABEL = { CAPEX: 'CAPEX', OPEX: 'OPEX', NON_CHARGE: 'Non Charge', UNMAPPED: '⚠ Unmapped' };
+
+function buildTable1(classifiedRows) {
+  const squads = [];
+  const squadSeen = {};
+  classifiedRows.forEach(row => {
+    if (!squadSeen[row.sq]) { squadSeen[row.sq] = true; squads.push(row.sq); }
+  });
+
+  const columns = [];
+  const colSeen = {};
+  CATEGORY_ORDER.forEach(cat => {
+    classifiedRows.forEach(row => {
+      if (row.category !== cat || colSeen[row.woKey]) return;
+      colSeen[row.woKey] = true;
+      columns.push({ key: row.woKey, label: row.woLabel, category: cat });
+    });
+  });
+
+  const cellMatrix = {};
+  squads.forEach(sq => { cellMatrix[sq] = {}; });
+  classifiedRows.forEach(row => {
+    cellMatrix[row.sq][row.woKey] = (cellMatrix[row.sq][row.woKey] || 0) + row.mh;
+  });
+
+  const rowTotals = {};
+  squads.forEach(sq => {
+    rowTotals[sq] = columns.reduce((sum, col) => sum + (cellMatrix[sq][col.key] || 0), 0);
+  });
+
+  const colTotals = {};
+  columns.forEach(col => {
+    colTotals[col.key] = squads.reduce((sum, sq) => sum + (cellMatrix[sq][col.key] || 0), 0);
+  });
+
+  const grandTotal = squads.reduce((sum, sq) => sum + rowTotals[sq], 0);
+
+  return { squads, columns, cellMatrix, rowTotals, colTotals, grandTotal };
+}
+
+function buildTable2(classifiedRows) {
+  const order = [];
+  const seen = {};
+  const capex = {};
+  const opex = {};
+  classifiedRows.forEach(row => {
+    if (!seen[row.sq]) { seen[row.sq] = true; order.push(row.sq); capex[row.sq] = 0; opex[row.sq] = 0; }
+    if (row.category === 'CAPEX') capex[row.sq] += row.mh;
+    if (row.category === 'OPEX') opex[row.sq] += row.mh;
+  });
+  return order.map(sq => {
+    const c = capex[sq], o = opex[sq];
+    const chargeable = c + o;
+    return {
+      sq,
+      capexMH: c,
+      opexMH: o,
+      capexPct: chargeable > 0 ? c / chargeable : null,
+      opexPct: chargeable > 0 ? o / chargeable : null
+    };
+  });
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText,
-    parseNum, parseDataRows
+    parseNum, parseDataRows, classifyRows, buildTable1, buildTable2,
+    CATEGORY_ORDER, CATEGORY_LABEL
   };
 }
 </script>

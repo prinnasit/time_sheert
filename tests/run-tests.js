@@ -60,6 +60,51 @@ test('parseDataRows skips rows missing WO No. or with non-numeric MH cells', () 
   assert.deepStrictEqual(result.skippedRows, [1, 2]);
 });
 
+test('classifyRows tags UNMAPPED rows and reports unmapped WO numbers', () => {
+  const mapping = App.parseMappingText('CAPEX-001\tCAPEX\tMVP1');
+  const rows = [
+    { rowNumber: 1, name: 'A', sq: 'SQ1', woNo: 'CAPEX-001', woName: '', mh: 10 },
+    { rowNumber: 2, name: 'B', sq: 'SQ1', woNo: 'W999', woName: 'Unknown', mh: 5 }
+  ];
+  const result = App.classifyRows(rows, mapping);
+  assert.strictEqual(result.rows[0].category, 'CAPEX');
+  assert.strictEqual(result.rows[0].woLabel, 'MVP1');
+  assert.strictEqual(result.rows[1].category, 'UNMAPPED');
+  assert.deepStrictEqual(result.unmappedWOs, ['W999']);
+});
+
+test('buildTable1 groups columns by category and computes totals', () => {
+  const classified = [
+    { sq: 'SQ1', woKey: 'C1', woLabel: 'C1', category: 'CAPEX', mh: 10 },
+    { sq: 'SQ1', woKey: 'O1', woLabel: 'O1', category: 'OPEX', mh: 5 },
+    { sq: 'SQ2', woKey: 'C1', woLabel: 'C1', category: 'CAPEX', mh: 3 }
+  ];
+  const table = App.buildTable1(classified);
+  assert.deepStrictEqual(table.squads, ['SQ1', 'SQ2']);
+  assert.deepStrictEqual(table.columns.map(c => c.key), ['C1', 'O1']);
+  assert.strictEqual(table.cellMatrix.SQ1.C1, 10);
+  assert.strictEqual(table.cellMatrix.SQ2.C1, 3);
+  assert.strictEqual(table.rowTotals.SQ1, 15);
+  assert.strictEqual(table.rowTotals.SQ2, 3);
+  assert.strictEqual(table.colTotals.C1, 13);
+  assert.strictEqual(table.grandTotal, 18);
+});
+
+test('buildTable2 computes chargeable percentages and nulls out squads with no chargeable MH', () => {
+  const classified = [
+    { sq: 'SQ1', category: 'CAPEX', mh: 6 },
+    { sq: 'SQ1', category: 'OPEX', mh: 2 },
+    { sq: 'SQ2', category: 'NON_CHARGE', mh: 4 }
+  ];
+  const table = App.buildTable2(classified);
+  const sq1 = table.find(r => r.sq === 'SQ1');
+  const sq2 = table.find(r => r.sq === 'SQ2');
+  assert.strictEqual(sq1.capexPct, 0.75);
+  assert.strictEqual(sq1.opexPct, 0.25);
+  assert.strictEqual(sq2.capexPct, null);
+  assert.strictEqual(sq2.opexPct, null);
+});
+
 process.on('exit', () => {
   if (failures > 0) {
     console.log(failures + ' failing test(s)');
