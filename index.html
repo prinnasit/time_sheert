@@ -277,5 +277,220 @@ if (typeof module !== 'undefined' && module.exports) {
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
+<script>
+(function () {
+  "use strict";
+
+  const mappingInput = document.getElementById('mapping-input');
+  const clearMappingBtn = document.getElementById('clear-mapping-btn');
+  const mappingStatus = document.getElementById('mapping-status');
+  const timesheetInput = document.getElementById('timesheet-input');
+  const xlsxUpload = document.getElementById('xlsx-upload');
+  const uploadStatus = document.getElementById('upload-status');
+  const runBtn = document.getElementById('run-btn');
+  const banners = document.getElementById('banners');
+  const table1Container = document.getElementById('table1-container');
+  const table2Container = document.getElementById('table2-container');
+  const copyTable1Btn = document.getElementById('copy-table1-btn');
+  const downloadTable1Btn = document.getElementById('download-table1-btn');
+  const copyTable2Btn = document.getElementById('copy-table2-btn');
+  const downloadTable2Btn = document.getElementById('download-table2-btn');
+
+  const MAPPING_STORAGE_KEY = 'woTimesheetSummary.mappingText';
+
+  let lastTable1Rows = null;
+  let lastTable2Rows = null;
+
+  try {
+    const saved = localStorage.getItem(MAPPING_STORAGE_KEY);
+    if (saved) mappingInput.value = saved;
+  } catch (e) { /* localStorage unavailable, ignore */ }
+
+  mappingInput.addEventListener('input', () => {
+    try { localStorage.setItem(MAPPING_STORAGE_KEY, mappingInput.value); } catch (e) { /* ignore */ }
+  });
+
+  clearMappingBtn.addEventListener('click', () => {
+    mappingInput.value = '';
+    try { localStorage.removeItem(MAPPING_STORAGE_KEY); } catch (e) { /* ignore */ }
+    mappingStatus.textContent = 'Cleared';
+    setTimeout(() => { mappingStatus.textContent = ''; }, 1500);
+  });
+
+  xlsxUpload.addEventListener('change', () => {
+    const file = xlsxUpload.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 'A3:AJ13', blankrows: false, defval: '' });
+        const header = 'Name-Surname\tSQ\tWO No.\tWO Name\tFTE/OS\t' +
+          Array.from({ length: 31 }, (_, i) => 'Day' + (i + 1)).join('\t');
+        const lines = [header].concat(rows.map(r => r.map(v => (v == null ? '' : v)).join('\t')));
+        timesheetInput.value = lines.join('\n');
+        uploadStatus.textContent = 'Loaded ' + rows.length + ' row(s) from ' + file.name;
+      } catch (err) {
+        uploadStatus.textContent = 'Failed to read file: ' + err.message;
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  function clearBanners() { banners.innerHTML = ''; }
+  function addBanner(kind, text) {
+    const div = document.createElement('div');
+    div.className = 'banner ' + kind;
+    div.textContent = text;
+    banners.appendChild(div);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function renderTable1(table1) {
+    const groups = [];
+    table1.columns.forEach(col => {
+      const last = groups[groups.length - 1];
+      if (last && last.category === col.category) last.span++;
+      else groups.push({ category: col.category, span: 1 });
+    });
+
+    let html = '<table><thead><tr><th></th>';
+    groups.forEach(g => { html += '<th colspan="' + g.span + '">' + CATEGORY_LABEL[g.category] + '</th>'; });
+    html += '<th></th></tr><tr><th>Squad</th>';
+    table1.columns.forEach(col => { html += '<th>' + escapeHtml(col.label) + '</th>'; });
+    html += '<th>Total</th></tr></thead><tbody>';
+
+    table1.squads.forEach(sq => {
+      html += '<tr><td>' + escapeHtml(sq) + '</td>';
+      table1.columns.forEach(col => {
+        html += '<td>' + formatMH(table1.cellMatrix[sq][col.key] || 0) + '</td>';
+      });
+      html += '<td>' + formatMH(table1.rowTotals[sq]) + '</td></tr>';
+    });
+
+    html += '<tr class="summary-row"><td>Summary</td>';
+    table1.columns.forEach(col => { html += '<td>' + formatMH(table1.colTotals[col.key]) + '</td>'; });
+    html += '<td>' + formatMH(table1.grandTotal) + '</td></tr>';
+    html += '</tbody></table>';
+    table1Container.innerHTML = html;
+  }
+
+  function renderTable2(table2) {
+    let html = '<table><thead><tr><th>Squad</th><th>CAPEX MH</th><th>OPEX MH</th><th>CAPEX %</th><th>OPEX %</th></tr></thead><tbody>';
+    table2.forEach(r => {
+      html += '<tr><td>' + escapeHtml(r.sq) + '</td><td>' + formatMH(r.capexMH) + '</td><td>' + formatMH(r.opexMH) +
+        '</td><td>' + formatPct(r.capexPct) + '</td><td>' + formatPct(r.opexPct) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    table2Container.innerHTML = html;
+  }
+
+  runBtn.addEventListener('click', () => {
+    clearBanners();
+    table1Container.innerHTML = '';
+    table2Container.innerHTML = '';
+    lastTable1Rows = null;
+    lastTable2Rows = null;
+
+    const mappingText = mappingInput.value;
+    const timesheetText = timesheetInput.value;
+
+    if (!mappingText.trim()) {
+      addBanner('error', 'กรุณาวางตาราง WO Mapping ก่อนกด Run');
+      return;
+    }
+    if (!timesheetText.trim()) {
+      addBanner('error', 'กรุณาวางข้อมูล Timesheet ก่อนกด Run');
+      return;
+    }
+
+    const mapping = parseMappingText(mappingText);
+    const rowArrays = rowsFromPastedText(timesheetText);
+    const parsed = parseDataRows(rowArrays);
+
+    if (parsed.rows.length === 0) {
+      addBanner('error', 'ไม่พบแถวข้อมูลที่ใช้ได้ใน Timesheet Input');
+      return;
+    }
+    if (parsed.skippedRows.length > 0) {
+      addBanner('warn', 'ข้ามแถวที่อ่านไม่ได้ (แถวที่ ' + parsed.skippedRows.join(', ') + ' ในข้อมูลที่วาง)');
+    }
+
+    const classified = classifyRows(parsed.rows, mapping);
+    if (classified.unmappedWOs.length > 0) {
+      addBanner('warn', 'พบ WO No. ที่ไม่มีในตาราง Mapping: ' + classified.unmappedWOs.join(', '));
+    }
+
+    const table1 = buildTable1(classified.rows);
+    const table2 = buildTable2(classified.rows);
+
+    renderTable1(table1);
+    renderTable2(table2);
+
+    lastTable1Rows = table1ToRows(table1);
+    lastTable2Rows = table2ToRows(table2);
+  });
+
+  function flashButton(btn, text) {
+    const original = btn.textContent;
+    btn.textContent = text;
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }
+
+  function fallbackCopy(text, done) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      done();
+    } catch (e) {
+      addBanner('error', 'Copy ไม่สำเร็จ กรุณาคัดลอกด้วยตนเอง');
+    }
+    document.body.removeChild(ta);
+  }
+
+  function copyRows(rows, btn) {
+    if (!rows) { addBanner('error', 'กรุณากด Run ก่อน Copy'); return; }
+    const tsv = toTSV(rows.header, rows.rows);
+    const done = () => flashButton(btn, '\u2713 Copied');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(tsv).then(done).catch(() => fallbackCopy(tsv, done));
+    } else {
+      fallbackCopy(tsv, done);
+    }
+  }
+
+  function downloadRows(rows, filenamePrefix) {
+    if (!rows) { addBanner('error', 'กรุณากด Run ก่อน Download'); return; }
+    const csv = toCSV(rows.header, rows.rows);
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = filenamePrefix + '_' + date + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  copyTable1Btn.addEventListener('click', () => copyRows(lastTable1Rows, copyTable1Btn));
+  copyTable2Btn.addEventListener('click', () => copyRows(lastTable2Rows, copyTable2Btn));
+  downloadTable1Btn.addEventListener('click', () => downloadRows(lastTable1Rows, 'wo-summary'));
+  downloadTable2Btn.addEventListener('click', () => downloadRows(lastTable2Rows, 'wo-percent'));
+})();
+</script>
+
 </body>
 </html>
