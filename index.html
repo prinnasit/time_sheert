@@ -153,11 +153,66 @@ function buildTable2(classifiedRows) {
   });
 }
 
+function formatMH(n) {
+  return (Math.round(n * 100) / 100).toFixed(2);
+}
+
+function formatPct(p) {
+  return p == null ? '–' : (Math.round(p * 1000) / 10).toFixed(1) + '%';
+}
+
+function csvEscape(v) {
+  const s = v == null ? '' : String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function toCSV(header, rows) {
+  const lines = [header.map(csvEscape).join(',')];
+  rows.forEach(r => lines.push(r.map(csvEscape).join(',')));
+  return lines.join('\r\n');
+}
+
+function tsvEscape(v) {
+  const s = v == null ? '' : String(v);
+  return s.replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
+}
+
+function toTSV(header, rows) {
+  const lines = [header.map(tsvEscape).join('\t')];
+  rows.forEach(r => lines.push(r.map(tsvEscape).join('\t')));
+  return lines.join('\n');
+}
+
+function table1ToRows(table1) {
+  const header = ['Squad', ...table1.columns.map(c => c.label), 'Total'];
+  const rows = table1.squads.map(sq => [
+    sq,
+    ...table1.columns.map(col => table1.cellMatrix[sq][col.key] || 0),
+    table1.rowTotals[sq]
+  ]);
+  const summary = ['Summary', ...table1.columns.map(c => table1.colTotals[c.key]), table1.grandTotal];
+  rows.push(summary);
+  return { header, rows };
+}
+
+function table2ToRows(table2) {
+  const header = ['Squad', 'CAPEX MH', 'OPEX MH', 'CAPEX %', 'OPEX %'];
+  const rows = table2.map(r => [
+    r.sq,
+    r.capexMH,
+    r.opexMH,
+    r.capexPct == null ? '' : r.capexPct,
+    r.opexPct == null ? '' : r.opexPct
+  ]);
+  return { header, rows };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText,
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2,
-    CATEGORY_ORDER, CATEGORY_LABEL
+    CATEGORY_ORDER, CATEGORY_LABEL,
+    formatMH, formatPct, toCSV, toTSV, table1ToRows, table2ToRows
   };
 }
 </script>

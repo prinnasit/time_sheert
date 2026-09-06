@@ -105,6 +105,43 @@ test('buildTable2 computes chargeable percentages and nulls out squads with no c
   assert.strictEqual(sq2.opexPct, null);
 });
 
+test('formatMH rounds to 2 decimals', () => {
+  assert.strictEqual(App.formatMH(10), '10.00');
+  assert.strictEqual(App.formatMH(10.005), '10.01');
+});
+
+test('formatPct renders a dash for null and a percentage otherwise', () => {
+  assert.strictEqual(App.formatPct(null), '–');
+  assert.strictEqual(App.formatPct(0.6666), '66.7%');
+});
+
+test('toCSV quotes values containing commas or quotes', () => {
+  const csv = App.toCSV(['Squad', 'Note'], [['SQ1', 'a, "b"']]);
+  assert.strictEqual(csv, 'Squad,Note\r\nSQ1,"a, ""b"""');
+});
+
+test('toTSV strips tabs and newlines from values', () => {
+  const tsv = App.toTSV(['Squad', 'Note'], [['SQ1', 'a\tb\nc']]);
+  assert.strictEqual(tsv, 'Squad\tNote\nSQ1\ta b c');
+});
+
+test('table1ToRows and table2ToRows produce full-precision numeric rows plus totals', () => {
+  const classified = [
+    { sq: 'SQ1', woKey: 'C1', woLabel: 'C1', category: 'CAPEX', mh: 1 / 3 },
+    { sq: 'SQ1', woKey: 'O1', woLabel: 'O1', category: 'OPEX', mh: 2 / 3 }
+  ];
+  const table1 = App.buildTable1(classified);
+  const t1rows = App.table1ToRows(table1);
+  assert.deepStrictEqual(t1rows.header, ['Squad', 'C1', 'O1', 'Total']);
+  assert.strictEqual(t1rows.rows[0][1], 1 / 3);
+  assert.strictEqual(t1rows.rows[1][0], 'Summary');
+
+  const table2 = App.buildTable2(classified);
+  const t2rows = App.table2ToRows(table2);
+  assert.deepStrictEqual(t2rows.header, ['Squad', 'CAPEX MH', 'OPEX MH', 'CAPEX %', 'OPEX %']);
+  assert.strictEqual(t2rows.rows[0][3], 1 / 3);
+});
+
 process.on('exit', () => {
   if (failures > 0) {
     console.log(failures + ' failing test(s)');
