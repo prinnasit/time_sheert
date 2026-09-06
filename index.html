@@ -218,62 +218,188 @@ if (typeof module !== 'undefined' && module.exports) {
 </script>
 
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-  h1 { font-size: 1.4rem; }
-  h2 { font-size: 1.1rem; margin-top: 2rem; }
-  textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; padding: 8px; }
-  .row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-  button { padding: 6px 14px; cursor: pointer; }
-  #run-btn { font-size: 1rem; padding: 10px 24px; margin: 16px 0; }
-  .upload-btn { display: inline-block; padding: 6px 14px; border: 1px solid currentColor; border-radius: 4px; cursor: pointer; }
-  .banner { padding: 10px 14px; border-radius: 4px; margin: 8px 0; font-size: 0.9rem; white-space: pre-wrap; }
-  .banner.warn { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
-  .banner.error { background: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
-  .table-actions { display: flex; gap: 8px; margin: 8px 0; }
-  table { border-collapse: collapse; width: 100%; margin-bottom: 8px; font-size: 0.85rem; }
-  th, td { border: 1px solid #999; padding: 4px 8px; text-align: right; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f2f4f8;
+    --surface: #ffffff;
+    --surface-alt: #f7f8fb;
+    --border: #e1e4ea;
+    --text: #1c2130;
+    --text-muted: #6b7280;
+    --accent: #2f6fed;
+    --accent-hover: #2559c7;
+    --accent-contrast: #ffffff;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 2px rgba(20,24,34,.04), 0 8px 24px rgba(20,24,34,.06);
+    --warn-bg: #fff6df; --warn-text: #6b4c00; --warn-border: #f0d999;
+    --error-bg: #fdecec; --error-text: #8a2a22; --error-border: #f3c3bd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161c;
+      --surface: #1b1e26;
+      --surface-alt: #20232c;
+      --border: #2c303c;
+      --text: #e7e9ef;
+      --text-muted: #9aa1b0;
+      --accent: #5b8def;
+      --accent-hover: #7ba1f2;
+      --accent-contrast: #0b0d10;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.4);
+      --warn-bg: #372b0d; --warn-text: #f2cf6e; --warn-border: #5a4818;
+      --error-bg: #391d1a; --error-text: #f4a89d; --error-border: #5c2d27;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 40px 20px 64px;
+    line-height: 1.5;
+  }
+  header.page-head { margin-bottom: 28px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -.01em; }
+  .subtitle { color: var(--text-muted); font-size: 0.92rem; margin: 0; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px 22px;
+    margin-bottom: 20px;
+  }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .step-badge {
+    flex: none;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 0.8rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card-head h2 { font-size: 1.02rem; margin: 0; }
+  .card-desc { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 12px; }
+  textarea {
+    width: 100%;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.82rem;
+    padding: 10px 12px;
+    background: var(--surface-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    resize: vertical;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+  .status-text { font-size: 0.82rem; color: var(--text-muted); }
+  .btn {
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 7px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .15s, border-color .15s, transform .05s;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 0.95rem;
+    padding: 11px 28px;
+  }
+  .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .run-row { margin: 4px 0 6px; }
+  .banner {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    margin-top: 10px;
+    font-size: 0.86rem;
+    white-space: pre-wrap;
+    border: 1px solid transparent;
+  }
+  .banner.warn { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-border); }
+  .banner.warn::before { content: "⚠ "; }
+  .banner.error { background: var(--error-bg); color: var(--error-text); border-color: var(--error-border); }
+  .banner.error::before { content: "✕ "; }
+  .table-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; white-space: nowrap; }
+  th, td { padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--border); }
   th:first-child, td:first-child { text-align: left; }
-  tr.summary-row { font-weight: bold; background: rgba(127,127,127,0.15); }
-  .table-scroll { overflow-x: auto; }
+  thead th { background: var(--surface-alt); font-weight: 600; color: var(--text-muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: .03em; }
+  tbody tr:hover { background: var(--surface-alt); }
+  tr.summary-row { font-weight: 700; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  tr.summary-row td { border-bottom: none; }
 </style>
 
-<h1>WO Timesheet Summary</h1>
+<header class="page-head">
+  <h1>WO Timesheet Summary</h1>
+  <p class="subtitle">แยก Work Order เป็น CAPEX / OPEX / Non Charge อัตโนมัติ พร้อมสรุปและส่งออกได้ทันที</p>
+</header>
 
-<h2>1. WO Mapping</h2>
-<p>วางตาราง WO No. / Category (CAPEX, OPEX, Non Charge) / WO Name (ถ้ามี) แยกด้วย Tab เช่นคัดลอกมาจาก Excel</p>
-<textarea id="mapping-input" rows="8" placeholder="WO No.&#9;Category&#9;WO Name"></textarea>
-<div class="row">
-  <button id="clear-mapping-btn" type="button">Clear</button>
-  <span id="mapping-status"></span>
-</div>
+<section class="card">
+  <div class="card-head"><span class="step-badge">1</span><h2>WO Mapping</h2></div>
+  <p class="card-desc">วางตาราง WO No. / Category (CAPEX, OPEX, Non Charge) / WO Name (ถ้ามี) แยกด้วย Tab เช่นคัดลอกมาจาก Excel</p>
+  <textarea id="mapping-input" rows="8" placeholder="WO No.&#9;Category&#9;WO Name"></textarea>
+  <div class="row">
+    <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
+    <span id="mapping-status" class="status-text"></span>
+  </div>
+</section>
 
-<h2>2. Timesheet Input</h2>
-<p>วางช่วง A2:AL13 จาก Excel หรืออัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx</p>
-<textarea id="timesheet-input" rows="10" placeholder="Name-Surname&#9;SQ&#9;WO No.&#9;WO Name&#9;FTE/OS&#9;..."></textarea>
-<div class="row">
-  <label class="upload-btn">Upload .xlsx<input type="file" id="xlsx-upload" accept=".xlsx" hidden></label>
-  <span id="upload-status"></span>
-</div>
+<section class="card">
+  <div class="card-head"><span class="step-badge">2</span><h2>Timesheet Input</h2></div>
+  <p class="card-desc">วางช่วง A2:AL13 จาก Excel หรืออัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx</p>
+  <textarea id="timesheet-input" rows="10" placeholder="Name-Surname&#9;SQ&#9;WO No.&#9;WO Name&#9;FTE/OS&#9;..."></textarea>
+  <div class="row">
+    <label class="btn">Upload .xlsx<input type="file" id="xlsx-upload" accept=".xlsx" hidden></label>
+    <span id="upload-status" class="status-text"></span>
+  </div>
+</section>
 
-<div>
-  <button id="run-btn" type="button">&#9654; Run</button>
+<div class="run-row">
+  <button id="run-btn" class="btn btn-primary" type="button">&#9654; Run</button>
 </div>
 <div id="banners"></div>
 
-<h2>Table 1: Squad &times; WO (CAPEX / OPEX / Non Charge)</h2>
-<div class="table-actions">
-  <button id="copy-table1-btn" type="button">Copy</button>
-  <button id="download-table1-btn" type="button">Download CSV</button>
-</div>
-<div id="table1-container" class="table-scroll"></div>
+<section class="card">
+  <div class="card-head"><h2>Table 1 &middot; Squad &times; WO (CAPEX / OPEX / Non Charge)</h2></div>
+  <div class="table-actions">
+    <button id="copy-table1-btn" class="btn" type="button">Copy</button>
+    <button id="download-table1-btn" class="btn" type="button">Download CSV</button>
+  </div>
+  <div id="table1-container" class="table-scroll"></div>
+</section>
 
-<h2>Table 2: % CAPEX / OPEX per Squad</h2>
-<div class="table-actions">
-  <button id="copy-table2-btn" type="button">Copy</button>
-  <button id="download-table2-btn" type="button">Download CSV</button>
-</div>
-<div id="table2-container" class="table-scroll"></div>
+<section class="card">
+  <div class="card-head"><h2>Table 2 &middot; % CAPEX / OPEX per Squad</h2></div>
+  <div class="table-actions">
+    <button id="copy-table2-btn" class="btn" type="button">Copy</button>
+    <button id="download-table2-btn" class="btn" type="button">Download CSV</button>
+  </div>
+  <div id="table2-container" class="table-scroll"></div>
+</section>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
