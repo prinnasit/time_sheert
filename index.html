@@ -487,6 +487,8 @@ if (typeof module !== 'undefined' && module.exports) {
 
   let lastTable1Rows = null;
   let lastTable2Rows = null;
+  let lastTable1 = null;
+  let lastTable2 = null;
 
   const MAPPING_COLUMNS = [
     { label: 'WO No.', type: 'text', width: '150px' },
@@ -786,6 +788,8 @@ if (typeof module !== 'undefined' && module.exports) {
     table2Container.innerHTML = '';
     lastTable1Rows = null;
     lastTable2Rows = null;
+    lastTable1 = null;
+    lastTable2 = null;
 
     const mappingText = mappingInput.value;
     const timesheetText = timesheetInput.value;
@@ -824,6 +828,8 @@ if (typeof module !== 'undefined' && module.exports) {
 
     lastTable1Rows = table1ToRows(table1);
     lastTable2Rows = table2ToRows(table2);
+    lastTable1 = table1;
+    lastTable2 = table2;
   });
 
   function flashButton(btn, text) {
@@ -849,15 +855,119 @@ if (typeof module !== 'undefined' && module.exports) {
     document.body.removeChild(ta);
   }
 
-  function copyRows(rows, btn) {
+  // -- Colored clipboard export. Plain-text clipboard (TSV) can't carry
+  // color, so Copy also writes a text/html version with inline styles —
+  // Excel and Google Sheets both read text/html on paste and keep the
+  // background colors, while any plain-text-only target still gets the
+  // TSV fallback below.
+
+  const CATEGORY_BG = { CAPEX: '#d7f2df', OPEX: '#d8e8fc', NON_CHARGE: '#fdf0cf', UNMAPPED: '#fbdcdc' };
+  const GRID_HEADER_BG = '#eef0f4';
+  const GRID_SUMMARY_BG = '#dde6fb';
+
+  function categoryBg(cat) { return CATEGORY_BG[cat] || '#ffffff'; }
+
+  function clipCellStyle(bg, align, bold) {
+    return 'background:' + bg + ';border:1px solid #ccc;padding:4px 8px;text-align:' + align + ';' + (bold ? 'font-weight:700;' : '');
+  }
+
+  function clipCell(tag, text, bg, align, bold, colspan) {
+    return '<' + tag + (colspan ? ' colspan="' + colspan + '"' : '') +
+      ' style="' + clipCellStyle(bg, align, bold) + '">' + escapeHtml(text) + '</' + tag + '>';
+  }
+
+  function buildTable1ClipboardHTML(table1) {
+    const groups = [];
+    table1.columns.forEach(col => {
+      const last = groups[groups.length - 1];
+      if (last && last.category === col.category) last.span++;
+      else groups.push({ category: col.category, span: 1 });
+    });
+
+    let html = '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">';
+
+    html += '<tr>' + clipCell('td', '', GRID_HEADER_BG, 'left', true);
+    groups.forEach(g => { html += clipCell('td', CATEGORY_LABEL[g.category], categoryBg(g.category), 'center', true, g.span); });
+    html += clipCell('td', '', GRID_HEADER_BG, 'left', true) + '</tr>';
+
+    html += '<tr>' + clipCell('td', 'Squad', GRID_HEADER_BG, 'left', true);
+    table1.columns.forEach(col => { html += clipCell('td', col.label, categoryBg(col.category), 'right', true); });
+    html += clipCell('td', 'Total', GRID_HEADER_BG, 'right', true) + '</tr>';
+
+    table1.squads.forEach(sq => {
+      html += '<tr>' + clipCell('td', sq, '#ffffff', 'left', false);
+      table1.columns.forEach(col => {
+        html += clipCell('td', formatMH(table1.cellMatrix[sq][col.key] || 0), categoryBg(col.category), 'right', false);
+      });
+      html += clipCell('td', formatMH(table1.rowTotals[sq]), '#ffffff', 'right', false) + '</tr>';
+    });
+
+    html += '<tr>' + clipCell('td', 'Summary', GRID_SUMMARY_BG, 'left', true);
+    table1.columns.forEach(col => { html += clipCell('td', formatMH(table1.colTotals[col.key]), GRID_SUMMARY_BG, 'right', true); });
+    html += clipCell('td', formatMH(table1.grandTotal), GRID_SUMMARY_BG, 'right', true) + '</tr>';
+
+    html += '</table>';
+    return html;
+  }
+
+  function buildTable2ClipboardHTML(table2) {
+    let html = '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">';
+    html += '<tr>' +
+      clipCell('td', 'Squad', GRID_HEADER_BG, 'left', true) +
+      clipCell('td', 'CAPEX MH', categoryBg('CAPEX'), 'right', true) +
+      clipCell('td', 'OPEX MH', categoryBg('OPEX'), 'right', true) +
+      clipCell('td', 'CAPEX %', categoryBg('CAPEX'), 'right', true) +
+      clipCell('td', 'OPEX %', categoryBg('OPEX'), 'right', true) +
+      '</tr>';
+    table2.forEach(r => {
+      html += '<tr>' +
+        clipCell('td', r.sq, '#ffffff', 'left', false) +
+        clipCell('td', formatMH(r.capexMH), categoryBg('CAPEX'), 'right', false) +
+        clipCell('td', formatMH(r.opexMH), categoryBg('OPEX'), 'right', false) +
+        clipCell('td', formatPct(r.capexPct), categoryBg('CAPEX'), 'right', false) +
+        clipCell('td', formatPct(r.opexPct), categoryBg('OPEX'), 'right', false) +
+        '</tr>';
+    });
+    html += '</table>';
+    return html;
+  }
+
+  function copyHTMLAndText(html, text, btn) {
+    const done = () => flashButton(btn, '✓ Copied');
+
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.top = '0';
+    container.style.left = '-9999px';
+    container.contentEditable = 'true';
+    container.innerHTML = html;
+    document.body.appendChild(container);
+
+    const range = document.createRange();
+    range.selectNodeContents(container);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch (e) { copied = false; }
+
+    selection.removeAllRanges();
+    document.body.removeChild(container);
+
+    if (copied) { done(); return; }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+
+  function copyRows(rows, html, btn) {
     if (!rows) { addBanner('error', 'กรุณากด Run ก่อน Copy'); return; }
     const tsv = toTSV(rows.header, rows.rows);
-    const done = () => flashButton(btn, '\u2713 Copied');
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(tsv).then(done).catch(() => fallbackCopy(tsv, done));
-    } else {
-      fallbackCopy(tsv, done);
-    }
+    copyHTMLAndText(html, tsv, btn);
   }
 
   function downloadRows(rows, filenamePrefix) {
@@ -875,8 +985,8 @@ if (typeof module !== 'undefined' && module.exports) {
     URL.revokeObjectURL(url);
   }
 
-  copyTable1Btn.addEventListener('click', () => copyRows(lastTable1Rows, copyTable1Btn));
-  copyTable2Btn.addEventListener('click', () => copyRows(lastTable2Rows, copyTable2Btn));
+  copyTable1Btn.addEventListener('click', () => copyRows(lastTable1Rows, lastTable1 ? buildTable1ClipboardHTML(lastTable1) : '', copyTable1Btn));
+  copyTable2Btn.addEventListener('click', () => copyRows(lastTable2Rows, lastTable2 ? buildTable2ClipboardHTML(lastTable2) : '', copyTable2Btn));
   downloadTable1Btn.addEventListener('click', () => downloadRows(lastTable1Rows, 'wo-summary'));
   downloadTable2Btn.addEventListener('click', () => downloadRows(lastTable2Rows, 'wo-percent'));
 })();
