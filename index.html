@@ -42,6 +42,13 @@ function rowsFromPastedText(text) {
   return lines.slice(1).map(line => line.split('\t'));
 }
 
+function splitPasteBlock(text) {
+  const raw = String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  let lines = raw.split('\n');
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines = lines.slice(0, -1);
+  return lines.map(line => line.split('\t'));
+}
+
 function parseNum(v) {
   if (v == null) return { ok: true, value: 0 };
   const s = String(v).trim();
@@ -209,7 +216,7 @@ function table2ToRows(table2) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText,
+    normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2,
     CATEGORY_ORDER, CATEGORY_LABEL,
     formatMH, formatPct, toCSV, toTSV, table1ToRows, table2ToRows
@@ -344,6 +351,52 @@ if (typeof module !== 'undefined' && module.exports) {
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
+  .grid-scroll {
+    overflow: auto;
+    max-height: 320px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+  }
+  table.input-grid { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+  table.input-grid th {
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  table.input-grid td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0; }
+  table.input-grid th.grid-del-col, table.input-grid td.grid-del-col { border-right: none; width: 30px; }
+  table.input-grid input, table.input-grid select {
+    display: block;
+    width: 100%;
+    min-width: 64px;
+    box-sizing: border-box;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    padding: 6px 8px;
+    outline: none;
+  }
+  table.input-grid input.numeric { text-align: right; min-width: 46px; }
+  table.input-grid input:focus, table.input-grid select:focus {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  table.input-grid tbody tr:hover { background: var(--surface-alt); }
+  .row-del { border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 4px 8px; }
+  .row-del:hover { color: var(--error-text); }
+  .btn-add-row { margin-bottom: 10px; }
   table { border-collapse: collapse; width: 100%; font-size: 0.82rem; white-space: nowrap; }
   th, td { padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--border); }
   th:first-child, td:first-child { text-align: left; }
@@ -360,8 +413,10 @@ if (typeof module !== 'undefined' && module.exports) {
 
 <section class="card">
   <div class="card-head"><span class="step-badge">1</span><h2>WO Mapping</h2></div>
-  <p class="card-desc">วางตาราง WO No. / Category (CAPEX, OPEX, Non Charge) / WO Name (ถ้ามี) แยกด้วย Tab เช่นคัดลอกมาจาก Excel</p>
-  <textarea id="mapping-input" rows="8" placeholder="WO No.&#9;Category&#9;WO Name"></textarea>
+  <p class="card-desc">พิมพ์หรือวาง (paste) ตาราง WO No. / Category / WO Name ทีละช่อง — วางข้อมูลก้อนใหญ่จาก Excel ลงในช่องแรกได้เลย มันจะกระจายลงทุกช่องให้อัตโนมัติเหมือนใน Excel</p>
+  <div id="mapping-grid"></div>
+  <button id="mapping-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+  <textarea id="mapping-input" hidden></textarea>
   <div class="row">
     <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
     <span id="mapping-status" class="status-text"></span>
@@ -370,8 +425,10 @@ if (typeof module !== 'undefined' && module.exports) {
 
 <section class="card">
   <div class="card-head"><span class="step-badge">2</span><h2>Timesheet Input</h2></div>
-  <p class="card-desc">วางช่วง A2:AL13 จาก Excel หรืออัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx</p>
-  <textarea id="timesheet-input" rows="10" placeholder="Name-Surname&#9;SQ&#9;WO No.&#9;WO Name&#9;FTE/OS&#9;..."></textarea>
+  <p class="card-desc">พิมพ์หรือวางข้อมูลทีละช่อง (เลื่อนดูขวาได้ถึง Day31) หรืออัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx</p>
+  <div id="timesheet-grid"></div>
+  <button id="timesheet-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+  <textarea id="timesheet-input" hidden></textarea>
   <div class="row">
     <label class="btn">Upload .xlsx<input type="file" id="xlsx-upload" accept=".xlsx" hidden></label>
     <span id="upload-status" class="status-text"></span>
@@ -421,22 +478,228 @@ if (typeof module !== 'undefined' && module.exports) {
   const downloadTable1Btn = document.getElementById('download-table1-btn');
   const copyTable2Btn = document.getElementById('copy-table2-btn');
   const downloadTable2Btn = document.getElementById('download-table2-btn');
+  const mappingGridMount = document.getElementById('mapping-grid');
+  const mappingAddRowBtn = document.getElementById('mapping-add-row-btn');
+  const timesheetGridMount = document.getElementById('timesheet-grid');
+  const timesheetAddRowBtn = document.getElementById('timesheet-add-row-btn');
 
   const MAPPING_STORAGE_KEY = 'woTimesheetSummary.mappingText';
 
   let lastTable1Rows = null;
   let lastTable2Rows = null;
 
+  const MAPPING_COLUMNS = [
+    { label: 'WO No.', type: 'text', width: '150px' },
+    { label: 'Category', type: 'select', options: ['', 'CAPEX', 'OPEX', 'Non Charge'], width: '130px' },
+    { label: 'WO Name', type: 'text', width: '240px' }
+  ];
+
+  const TIMESHEET_COLUMNS = [
+    { label: 'Name-Surname', type: 'text', width: '150px' },
+    { label: 'SQ', type: 'text', width: '110px' },
+    { label: 'WO No.', type: 'text', width: '110px' },
+    { label: 'WO Name', type: 'text', width: '170px' },
+    { label: 'FTE/OS', type: 'text', width: '64px', numeric: true }
+  ].concat(Array.from({ length: 31 }, (_, i) => ({ label: 'Day' + (i + 1), type: 'text', width: '48px', numeric: true })));
+
+  // -- Editable grid: a lightweight Excel-like input widget. Each grid keeps
+  // its own <table> of real <input>/<select> cells; on any change it
+  // serializes back into the hidden textarea (mappingInput/timesheetInput)
+  // that the rest of this script already reads from — so Run, localStorage,
+  // and the .xlsx upload path all work completely unchanged below.
+
+  function buildGridHeaderRow(columns) {
+    const tr = document.createElement('tr');
+    columns.forEach(col => {
+      const th = document.createElement('th');
+      th.textContent = col.label;
+      if (col.width) th.style.minWidth = col.width;
+      tr.appendChild(th);
+    });
+    const th = document.createElement('th');
+    th.className = 'grid-del-col';
+    tr.appendChild(th);
+    return tr;
+  }
+
+  function buildGridDataRow(columns, values) {
+    const tr = document.createElement('tr');
+    columns.forEach((col, i) => {
+      const td = document.createElement('td');
+      let el;
+      if (col.type === 'select') {
+        el = document.createElement('select');
+        col.options.forEach(opt => {
+          const o = document.createElement('option');
+          o.value = opt;
+          o.textContent = opt || '—';
+          el.appendChild(o);
+        });
+      } else {
+        el = document.createElement('input');
+        el.type = 'text';
+        if (col.numeric) { el.className = 'numeric'; el.inputMode = 'decimal'; }
+      }
+      el.value = (values && values[i]) || '';
+      td.appendChild(el);
+      tr.appendChild(td);
+    });
+    const delTd = document.createElement('td');
+    delTd.className = 'grid-del-col';
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'row-del';
+    delBtn.tabIndex = -1;
+    delBtn.title = 'ลบแถวนี้';
+    delBtn.textContent = '×';
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
+    return tr;
+  }
+
+  function createGridEditor(mount, columns, addRowBtn, minRows, onChange) {
+    const table = document.createElement('table');
+    table.className = 'input-grid';
+    const thead = document.createElement('thead');
+    thead.appendChild(buildGridHeaderRow(columns));
+    const tbody = document.createElement('tbody');
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    const scroll = document.createElement('div');
+    scroll.className = 'grid-scroll';
+    scroll.appendChild(table);
+    mount.appendChild(scroll);
+
+    function cellsOfRow(tr) { return Array.from(tr.querySelectorAll('input, select')); }
+    function allRows() { return Array.from(tbody.children); }
+    function addRow(values) {
+      const tr = buildGridDataRow(columns, values || []);
+      tbody.appendChild(tr);
+      return tr;
+    }
+    function ensureMinRows() { while (tbody.children.length < minRows) addRow([]); }
+    function focusCell(tr, colIndex) {
+      if (!tr) return;
+      const cells = cellsOfRow(tr);
+      const target = cells[colIndex] || cells[cells.length - 1];
+      if (target) { target.focus(); if (target.select) target.select(); }
+    }
+
+    function getRows() {
+      return allRows()
+        .map(tr => cellsOfRow(tr).map(el => el.value))
+        .filter(vals => vals.some(v => String(v).trim() !== ''));
+    }
+
+    function setRows(rows) {
+      tbody.innerHTML = '';
+      (rows || []).forEach(r => addRow(r));
+      ensureMinRows();
+    }
+
+    tbody.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('row-del')) return;
+      const tr = e.target.closest('tr');
+      if (tbody.children.length > 1) tr.remove(); else cellsOfRow(tr).forEach(el => { el.value = ''; });
+      ensureMinRows();
+      onChange();
+    });
+
+    tbody.addEventListener('input', onChange);
+    tbody.addEventListener('change', onChange);
+
+    tbody.addEventListener('keydown', (e) => {
+      const el = e.target;
+      if (!(el.matches('input') || el.matches('select'))) return;
+      const td = el.closest('td');
+      const tr = td.closest('tr');
+      const colIndex = Array.from(tr.children).indexOf(td);
+      const rows = allRows();
+      const rowIndex = rows.indexOf(tr);
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        let nextTr = rows[rowIndex + 1];
+        if (!nextTr) { nextTr = addRow([]); onChange(); }
+        focusCell(nextTr, colIndex);
+      } else if (e.key === 'Tab' && !e.shiftKey && colIndex === columns.length - 1 && rowIndex === rows.length - 1) {
+        e.preventDefault();
+        const newTr = addRow([]);
+        onChange();
+        focusCell(newTr, 0);
+      } else if (e.key === 'ArrowDown' && el.tagName !== 'SELECT') {
+        const nextTr = rows[rowIndex + 1];
+        if (nextTr) { e.preventDefault(); focusCell(nextTr, colIndex); }
+      } else if (e.key === 'ArrowUp' && el.tagName !== 'SELECT') {
+        const prevTr = rows[rowIndex - 1];
+        if (prevTr) { e.preventDefault(); focusCell(prevTr, colIndex); }
+      }
+    });
+
+    tbody.addEventListener('paste', (e) => {
+      const el = e.target;
+      if (!(el.matches('input') || el.matches('select'))) return;
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      if (text == null || (!text.includes('\t') && !text.includes('\n'))) return;
+      e.preventDefault();
+      const block = splitPasteBlock(text);
+      const td = el.closest('td');
+      const tr = td.closest('tr');
+      const startCol = Array.from(tr.children).indexOf(td);
+      let rows = allRows();
+      const startRowIndex = rows.indexOf(tr);
+
+      block.forEach((cells, ri) => {
+        let targetTr = rows[startRowIndex + ri];
+        if (!targetTr) { targetTr = addRow([]); rows = allRows(); }
+        const targetCells = cellsOfRow(targetTr);
+        cells.forEach((val, ci) => {
+          const targetEl = targetCells[startCol + ci];
+          if (targetEl) targetEl.value = val;
+        });
+      });
+      ensureMinRows();
+      onChange();
+    });
+
+    ensureMinRows();
+    if (addRowBtn) addRowBtn.addEventListener('click', () => { const tr = addRow([]); onChange(); focusCell(tr, 0); });
+
+    return { getRows, setRows };
+  }
+
+  function serializeGridToTSV(header, grid) {
+    const rows = grid.getRows();
+    return [header.join('\t')].concat(rows.map(r => r.join('\t'))).join('\n');
+  }
+
+  function populateGridFromTSV(grid, text) {
+    const lines = String(text || '').split(/\r\n|\r|\n/).filter(l => l.trim() !== '');
+    grid.setRows(lines.slice(1).map(line => line.split('\t')));
+  }
+
+  const mappingGrid = createGridEditor(mappingGridMount, MAPPING_COLUMNS, mappingAddRowBtn, 6, () => {
+    mappingInput.value = serializeGridToTSV(MAPPING_COLUMNS.map(c => c.label), mappingGrid);
+    mappingInput.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  const timesheetGrid = createGridEditor(timesheetGridMount, TIMESHEET_COLUMNS, timesheetAddRowBtn, 8, () => {
+    timesheetInput.value = serializeGridToTSV(TIMESHEET_COLUMNS.map(c => c.label), timesheetGrid);
+    timesheetInput.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
   try {
     const saved = localStorage.getItem(MAPPING_STORAGE_KEY);
     if (saved) mappingInput.value = saved;
   } catch (e) { /* localStorage unavailable, ignore */ }
+  populateGridFromTSV(mappingGrid, mappingInput.value);
 
   mappingInput.addEventListener('input', () => {
     try { localStorage.setItem(MAPPING_STORAGE_KEY, mappingInput.value); } catch (e) { /* ignore */ }
   });
 
   clearMappingBtn.addEventListener('click', () => {
+    mappingGrid.setRows([]);
     mappingInput.value = '';
     try { localStorage.removeItem(MAPPING_STORAGE_KEY); } catch (e) { /* ignore */ }
     mappingStatus.textContent = 'Cleared';
@@ -457,6 +720,7 @@ if (typeof module !== 'undefined' && module.exports) {
           Array.from({ length: 31 }, (_, i) => 'Day' + (i + 1)).join('\t');
         const lines = [header].concat(rows.map(r => r.map(v => (v == null ? '' : v)).join('\t')));
         timesheetInput.value = lines.join('\n');
+        populateGridFromTSV(timesheetGrid, timesheetInput.value);
         uploadStatus.textContent = 'Loaded ' + rows.length + ' row(s) from ' + file.name;
       } catch (err) {
         uploadStatus.textContent = 'Failed to read file: ' + err.message;

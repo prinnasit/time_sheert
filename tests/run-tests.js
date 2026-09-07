@@ -43,6 +43,13 @@ test('rowsFromPastedText drops the first line as header', () => {
   assert.deepStrictEqual(rows[0], ['Alice', 'SQ1', 'CAPEX-001']);
 });
 
+test('splitPasteBlock splits a pasted grid block into rows/cols and drops one trailing blank line', () => {
+  assert.deepStrictEqual(App.splitPasteBlock('hello'), [['hello']]);
+  assert.deepStrictEqual(App.splitPasteBlock('a\tb\nc\td'), [['a', 'b'], ['c', 'd']]);
+  assert.deepStrictEqual(App.splitPasteBlock('a\tb\nc\td\n'), [['a', 'b'], ['c', 'd']]);
+  assert.deepStrictEqual(App.splitPasteBlock('a\r\nb'), [['a'], ['b']]);
+});
+
 test('parseDataRows sums daily MH and defaults blank SQ', () => {
   const row = ['Alice', '', 'CAPEX-001', 'MVP1', '1', '8', '8', '', '4'];
   const result = App.parseDataRows([row]);
