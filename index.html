@@ -409,6 +409,23 @@ if (typeof module !== 'undefined' && module.exports) {
   tbody tr:hover { background: var(--surface-alt); }
   tr.summary-row { font-weight: 700; background: color-mix(in srgb, var(--accent) 10%, transparent); }
   tr.summary-row td { border-bottom: none; }
+  tr.remaining-row td:first-child { font-style: italic; color: var(--text-muted); white-space: nowrap; }
+  tr.remaining-row input.remaining-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    background: var(--surface-alt);
+    color: var(--text);
+    font: inherit;
+    text-align: right;
+  }
+  tr.remaining-row input.remaining-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
 </style>
 
 <header class="page-head">
@@ -489,11 +506,32 @@ if (typeof module !== 'undefined' && module.exports) {
   const timesheetAddRowBtn = document.getElementById('timesheet-add-row-btn');
 
   const MAPPING_STORAGE_KEY = 'woTimesheetSummary.mappingText';
+  const REMAINING_STORAGE_KEY = 'woTimesheetSummary.remaining';
+  const REMAINING_ROWS = [
+    { period: 'lastMonth', label: 'Remaining (เดือนที่แล้ว)' },
+    { period: 'thisMonth', label: 'Remaining (เดือนนี้)' }
+  ];
 
   let lastTable1Rows = null;
   let lastTable2Rows = null;
   let lastTable1 = null;
   let lastTable2 = null;
+
+  // Remaining budget/quota figures — same idea as the original template's
+  // "Remaining (JUL)"/"Remaining (AUG)" rows: manually typed, CAPEX columns
+  // only, not derived from timesheet data at all. Kept as its own bit of
+  // persisted state (keyed by CAPEX column's woKey) rather than folded into
+  // table1/table1ToRows, since it's user-entered supplementary data, not
+  // something the pure classification logic computes.
+  let remainingState = { lastMonth: {}, thisMonth: {} };
+  try {
+    const savedRemaining = localStorage.getItem(REMAINING_STORAGE_KEY);
+    if (savedRemaining) remainingState = JSON.parse(savedRemaining);
+  } catch (e) { /* localStorage unavailable or corrupt saved value, start fresh */ }
+
+  function saveRemainingState() {
+    try { localStorage.setItem(REMAINING_STORAGE_KEY, JSON.stringify(remainingState)); } catch (e) { /* ignore */ }
+  }
 
   const MAPPING_COLUMNS = [
     { label: 'WO No.', type: 'text', width: '150px' },
@@ -773,8 +811,59 @@ if (typeof module !== 'undefined' && module.exports) {
     html += '<tr class="summary-row"><td>Summary</td>';
     table1.columns.forEach(col => { html += '<td>' + formatMH(table1.colTotals[col.key]) + '</td>'; });
     html += '<td>' + formatMH(table1.grandTotal) + '</td></tr>';
+
+    REMAINING_ROWS.forEach(rr => {
+      html += '<tr class="remaining-row"><td>' + escapeHtml(rr.label) + '</td>';
+      table1.columns.forEach(col => {
+        if (col.category === 'CAPEX') {
+          const val = (remainingState[rr.period] && remainingState[rr.period][col.key]) || '';
+          html += '<td><input type="text" class="remaining-input" inputmode="decimal" ' +
+            'data-period="' + rr.period + '" data-wo-key="' + escapeHtml(col.key) + '" value="' + escapeHtml(val) + '"></td>';
+        } else {
+          html += '<td></td>';
+        }
+      });
+      html += '<td></td></tr>';
+    });
+
     html += '</tbody></table>';
     table1Container.innerHTML = html;
+  }
+
+  // Event delegation: the Remaining <input> cells are recreated by every
+  // renderTable1() call, so listen on the stable container instead of
+  // re-binding per input.
+  table1Container.addEventListener('input', (e) => {
+    if (!e.target.classList.contains('remaining-input')) return;
+    const period = e.target.dataset.period;
+    const woKey = e.target.dataset.woKey;
+    const val = e.target.value.trim();
+    if (!remainingState[period]) remainingState[period] = {};
+    if (val === '') delete remainingState[period][woKey];
+    else remainingState[period][woKey] = val;
+    saveRemainingState();
+    if (lastTable1Rows) appendRemainingRows(lastTable1Rows, lastTable1);
+  });
+
+  // Appends the two Remaining rows (label + CAPEX-only values, everything
+  // else blank) onto an already-built table1ToRows() result, so Copy and
+  // Download CSV carry the same rows visible on screen.
+  function appendRemainingRows(rowsResult, table1) {
+    rowsResult.rows = rowsResult.rows.filter(r => !REMAINING_ROWS.some(rr => rr.label === r[0]));
+    REMAINING_ROWS.forEach(rr => {
+      const row = [rr.label];
+      table1.columns.forEach(col => {
+        if (col.category === 'CAPEX') {
+          const val = (remainingState[rr.period] && remainingState[rr.period][col.key]) || '';
+          row.push(val);
+        } else {
+          row.push('');
+        }
+      });
+      row.push('');
+      rowsResult.rows.push(row);
+    });
+    return rowsResult;
   }
 
   function renderTable2(table2) {
@@ -831,7 +920,7 @@ if (typeof module !== 'undefined' && module.exports) {
     renderTable1(table1);
     renderTable2(table2);
 
-    lastTable1Rows = table1ToRows(table1);
+    lastTable1Rows = appendRemainingRows(table1ToRows(table1), table1);
     lastTable2Rows = table2ToRows(table2);
     lastTable1 = table1;
     lastTable2 = table2;
@@ -910,6 +999,19 @@ if (typeof module !== 'undefined' && module.exports) {
     html += '<tr>' + clipCell('td', 'Summary', GRID_SUMMARY_BG, 'left', true);
     table1.columns.forEach(col => { html += clipCell('td', formatMH(table1.colTotals[col.key]), GRID_SUMMARY_BG, 'right', true); });
     html += clipCell('td', formatMH(table1.grandTotal), GRID_SUMMARY_BG, 'right', true) + '</tr>';
+
+    REMAINING_ROWS.forEach(rr => {
+      html += '<tr>' + clipCell('td', rr.label, '#ffffff', 'left', true);
+      table1.columns.forEach(col => {
+        if (col.category === 'CAPEX') {
+          const val = (remainingState[rr.period] && remainingState[rr.period][col.key]) || '';
+          html += clipCell('td', val, categoryBg('CAPEX'), 'right', false);
+        } else {
+          html += clipCell('td', '', '#ffffff', 'right', false);
+        }
+      });
+      html += clipCell('td', '', '#ffffff', 'right', false) + '</tr>';
+    });
 
     html += '</table>';
     return html;
