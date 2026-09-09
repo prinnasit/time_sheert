@@ -99,6 +99,11 @@ function classifyRows(rows, mapping) {
 const CATEGORY_ORDER = ['CAPEX', 'OPEX', 'NON_CHARGE', 'UNMAPPED'];
 const CATEGORY_LABEL = { CAPEX: 'CAPEX', OPEX: 'OPEX', NON_CHARGE: 'Non Charge', UNMAPPED: '⚠ Unmapped' };
 
+// Table 1 reports Man-Days, not Man-Hours: 8 MH = 1 Man-Day, the standard
+// workday conversion. Table 2 is unaffected — it stays in MH (and its %
+// columns are ratios, so the unit cancels out either way).
+const MH_PER_DAY = 8;
+
 function buildTable1(classifiedRows) {
   const squads = [];
   const squadSeen = {};
@@ -119,7 +124,7 @@ function buildTable1(classifiedRows) {
   const cellMatrix = {};
   squads.forEach(sq => { cellMatrix[sq] = {}; });
   classifiedRows.forEach(row => {
-    cellMatrix[row.sq][row.woKey] = (cellMatrix[row.sq][row.woKey] || 0) + row.mh;
+    cellMatrix[row.sq][row.woKey] = (cellMatrix[row.sq][row.woKey] || 0) + row.mh / MH_PER_DAY;
   });
 
   const rowTotals = {};
@@ -217,7 +222,7 @@ function table2ToRows(table2) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
-    parseNum, parseDataRows, classifyRows, buildTable1, buildTable2,
+    parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
     formatMH, formatPct, toCSV, toTSV, table1ToRows, table2ToRows
   };
@@ -441,7 +446,7 @@ if (typeof module !== 'undefined' && module.exports) {
 <div id="banners"></div>
 
 <section class="card">
-  <div class="card-head"><h2>Table 1 &middot; Squad &times; WO (CAPEX / OPEX / Non Charge)</h2></div>
+  <div class="card-head"><h2>Table 1 &middot; Squad &times; WO (CAPEX / OPEX / Non Charge) &mdash; หน่วย: Man-Day</h2></div>
   <div class="table-actions">
     <button id="copy-table1-btn" class="btn" type="button">Copy</button>
     <button id="download-table1-btn" class="btn" type="button">Download CSV</button>

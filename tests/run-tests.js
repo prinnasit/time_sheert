@@ -80,11 +80,13 @@ test('classifyRows tags UNMAPPED rows and reports unmapped WO numbers', () => {
   assert.deepStrictEqual(result.unmappedWOs, ['W999']);
 });
 
-test('buildTable1 groups columns by category and computes totals', () => {
+test('buildTable1 groups columns by category, converts MH to Man-Day (÷8), and computes totals', () => {
+  // mh values are multiples of MH_PER_DAY so the expected Man-Day totals
+  // below read as clean numbers (80 MH = 10 Man-Day, etc.).
   const classified = [
-    { sq: 'SQ1', woKey: 'C1', woLabel: 'C1', category: 'CAPEX', mh: 10 },
-    { sq: 'SQ1', woKey: 'O1', woLabel: 'O1', category: 'OPEX', mh: 5 },
-    { sq: 'SQ2', woKey: 'C1', woLabel: 'C1', category: 'CAPEX', mh: 3 }
+    { sq: 'SQ1', woKey: 'C1', woLabel: 'C1', category: 'CAPEX', mh: 10 * App.MH_PER_DAY },
+    { sq: 'SQ1', woKey: 'O1', woLabel: 'O1', category: 'OPEX', mh: 5 * App.MH_PER_DAY },
+    { sq: 'SQ2', woKey: 'C1', woLabel: 'C1', category: 'CAPEX', mh: 3 * App.MH_PER_DAY }
   ];
   const table = App.buildTable1(classified);
   assert.deepStrictEqual(table.squads, ['SQ1', 'SQ2']);
@@ -140,7 +142,7 @@ test('table1ToRows and table2ToRows produce full-precision numeric rows plus tot
   const table1 = App.buildTable1(classified);
   const t1rows = App.table1ToRows(table1);
   assert.deepStrictEqual(t1rows.header, ['Squad', 'C1', 'O1', 'Total']);
-  assert.strictEqual(t1rows.rows[0][1], 1 / 3);
+  assert.strictEqual(t1rows.rows[0][1], (1 / 3) / App.MH_PER_DAY); // Table 1 is Man-Day (÷8), full precision preserved
   assert.strictEqual(t1rows.rows[1][0], 'Summary');
 
   const table2 = App.buildTable2(classified);

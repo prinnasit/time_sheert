@@ -27,13 +27,13 @@ test('sample dataset flags exactly one unmapped WO', () => {
   assert.deepStrictEqual(classified.unmappedWOs, ['W999-UNKNOWN']);
 });
 
-test('table1 has the 4 squads in first-seen order with correct totals', () => {
+test('table1 has the 4 squads in first-seen order with correct Man-Day totals (MH ÷ 8)', () => {
   assert.deepStrictEqual(table1.squads, ['KSB_Elephant', 'KSB_Orca', 'KSB_Pony', 'KSB_Lead']);
-  assert.strictEqual(table1.rowTotals['KSB_Elephant'], 32);
-  assert.strictEqual(table1.rowTotals['KSB_Orca'], 40);
-  assert.strictEqual(table1.rowTotals['KSB_Pony'], 20);
-  assert.strictEqual(table1.rowTotals['KSB_Lead'], 16);
-  assert.strictEqual(table1.grandTotal, 108);
+  assert.strictEqual(table1.rowTotals['KSB_Elephant'], 4);
+  assert.strictEqual(table1.rowTotals['KSB_Orca'], 5);
+  assert.strictEqual(table1.rowTotals['KSB_Pony'], 2.5);
+  assert.strictEqual(table1.rowTotals['KSB_Lead'], 2);
+  assert.strictEqual(table1.grandTotal, 13.5);
 });
 
 test('table1 columns are grouped CAPEX, OPEX, Non Charge, then Unmapped', () => {
