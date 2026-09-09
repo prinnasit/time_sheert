@@ -119,9 +119,10 @@ test('formatMH rounds to 2 decimals', () => {
   assert.strictEqual(App.formatMH(10.005), '10.01');
 });
 
-test('formatPct renders a dash for null and a percentage otherwise', () => {
+test('formatPct renders a dash for null and a percentage to 2 decimals otherwise', () => {
   assert.strictEqual(App.formatPct(null), '–');
-  assert.strictEqual(App.formatPct(0.6666), '66.7%');
+  assert.strictEqual(App.formatPct(0.6666), '66.66%');
+  assert.strictEqual(App.formatPct(0.75), '75.00%');
 });
 
 test('toCSV quotes values containing commas or quotes', () => {

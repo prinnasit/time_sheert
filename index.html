@@ -170,7 +170,7 @@ function formatMH(n) {
 }
 
 function formatPct(p) {
-  return p == null ? '–' : (Math.round(p * 1000) / 10).toFixed(1) + '%';
+  return p == null ? '–' : (Math.round(p * 10000) / 100).toFixed(2) + '%';
 }
 
 function csvEscape(v) {
