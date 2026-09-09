@@ -1,115 +1,114 @@
-# WO Summary — Google Sheets automation
+# WO Summary — ระบบอัตโนมัติบน Google Sheets
 
-Automates the workflow you described: pull timesheet data from several
-separate Google Sheets (one per squad), combine them into one place, and
-run the same CAPEX/OPEX/Non-Charge classification as the `index.html` web
-tool — but living inside Google Sheets, with real colored cells, and no
-manual copy-paste between files.
+เครื่องมือนี้ช่วยงานที่คุณอธิบายไว้: ดึงข้อมูล timesheet จาก Google Sheets
+หลายไฟล์ (แต่ละไฟล์คือ 1 squad) มารวมไว้ที่เดียว แล้วรันการจำแนก
+CAPEX/OPEX/Non-Charge แบบเดียวกับเครื่องมือเว็บ `index.html` — แต่คราวนี้
+อยู่ใน Google Sheets เลย มีสีเซลล์จริงๆ และไม่ต้อง copy-paste ข้อมูลข้ามไฟล์
+ด้วยมืออีกต่อไป
 
-This reuses the exact same classification rules as the web tool (same
-category-normalization, same cross-tab/percent-table math) — verified by
-`tests/run-tests.js` against the identical sample dataset used to test
-`index.html`.
+ใช้กฎการจำแนกชุดเดียวกับเครื่องมือเว็บทุกประการ (normalize หมวดหมู่แบบ
+เดียวกัน, สูตรตาราง cross-tab/percent แบบเดียวกัน) — ตรวจสอบแล้วด้วย
+`tests/run-tests.js` โดยใช้ข้อมูลตัวอย่างชุดเดียวกับที่ใช้ทดสอบ `index.html`
 
-## What it does
+## มันทำอะไรให้บ้าง
 
-Click **WO Summary ▸ Run Now** in your master Sheet, and the script:
+กดเมนู **WO Summary ▸ Run Now** ใน Sheet หลักของคุณ แล้ว script จะ:
 
-1. Reads the list of source spreadsheet URLs from the **Config** tab.
-2. Opens each one and reads its timesheet rows (same layout as
-   `krungsri.xlsx`: row 3 onward, columns A–AJ), stopping at the first
-   blank row per source — no 11-row cap.
-3. Reads your **WO Mapping** tab (WO No. → CAPEX / OPEX / Non Charge).
-4. Writes every combined row into **Combined Raw**, tagged with which
-   source file it came from.
-5. Classifies every row and writes **Table 1** (Squad × WO cross-tab,
-   grouped and colored by category) and **Table 2** (%CAPEX/%OPEX per
-   squad) — with real cell background colors, not just text.
-6. Shows a popup listing any unmapped WO numbers or unreadable rows —
-   nothing is silently dropped or miscategorized.
+1. อ่านรายชื่อลิงก์ Sheet ต้นทางจาก tab **Config**
+2. เปิดแต่ละไฟล์ทีละไฟล์ แล้วอ่านข้อมูล timesheet (โครงสร้างเดียวกับ
+   `krungsri.xlsx`: เริ่มแถวที่ 3 คอลัมน์ A–AJ) โดยจะอ่านไปเรื่อยๆ จนกว่าจะ
+   เจอแถวว่างของแต่ละไฟล์ — ไม่จำกัดแค่ 11 แถวเหมือนไฟล์เดิม
+3. อ่านตาราง **WO Mapping** ของคุณ (WO No. → CAPEX / OPEX / Non Charge)
+4. เอาข้อมูลจากทุกไฟล์มารวมกัน เขียนลง tab **Combined Raw** พร้อมบอกว่า
+   แต่ละแถวมาจากไฟล์ไหน
+5. จำแนกแต่ละแถว แล้วเขียนผลลง **Table 1** (ตาราง Squad × WO แบบไขว้
+   จัดกลุ่มและใส่สีตามหมวดหมู่) และ **Table 2** (%CAPEX/%OPEX ต่อ squad)
+   — ใส่สีพื้นหลังเซลล์จริงๆ ไม่ใช่แค่ตัวหนังสือ
+6. เด้ง popup แจ้งเตือนถ้ามี WO No. ที่ไม่มีในตาราง Mapping หรือแถวที่
+   อ่านไม่ได้ — ไม่มีการเดาข้อมูลหรือปัดข้อมูลทิ้งเงียบๆ
 
-## One-time setup
+## ติดตั้งครั้งแรก (ทำครั้งเดียว)
 
-1. **Create (or pick) your master Google Sheet.** This is the one file
-   you'll open and click "Run Now" in — it doesn't need to hold any
-   timesheet data itself.
+1. **สร้าง (หรือเลือก) Google Sheet ที่จะใช้เป็นไฟล์หลัก** นี่คือไฟล์
+   เดียวที่คุณจะเปิดแล้วกด "Run Now" — ตัวไฟล์นี้เองไม่ต้องมีข้อมูล
+   timesheet อะไรอยู่ในนั้น
 
-2. **Add a `Config` tab** with this header row, then one row per source
-   squad:
+2. **เพิ่ม tab ชื่อ `Config`** ใส่หัวตารางแถวแรกตามนี้ แล้วเติมทีละแถว
+   สำหรับแต่ละ squad:
 
    | Squad/Label | Sheet URL | Tab Name (optional) |
    |---|---|---|
    | KSB_Elephant | https://docs.google.com/spreadsheets/d/xxxxx/edit | |
    | KSB_Orca | https://docs.google.com/spreadsheets/d/yyyyy/edit | Sheet1 |
 
-   Leave "Tab Name" blank to use each file's first sheet. Adding a new
-   squad later is just adding one more row here — no code changes.
+   ปล่อยช่อง "Tab Name" ว่างไว้ได้ ถ้าอยากให้อ่าน tab แรกของไฟล์นั้นเลย
+   ถ้าอยากเพิ่ม squad ใหม่ทีหลัง แค่เพิ่มอีกหนึ่งแถวตรงนี้ ไม่ต้องแก้โค้ด
 
-3. **Add a `WO Mapping` tab** with this header row, then your mapping:
+3. **เพิ่ม tab ชื่อ `WO Mapping`** ใส่หัวตารางแถวแรกตามนี้ แล้วเติมตาราง
+   ของคุณ:
 
    | WO No. | Category | WO Name |
    |---|---|---|
    | CAPEX-001 | CAPEX | ONE Corporate MVP1 |
    | Z01 | Non Charge | Leave / Day-Off |
 
-   (Category accepts `CAPEX`, `OPEX`, `Non Charge` — case/spacing don't
-   matter, same as the web tool.)
+   (ช่อง Category ใส่ `CAPEX`, `OPEX`, `Non Charge` ได้ — ตัวพิมพ์ใหญ่/เล็ก
+   หรือช่องว่างไม่มีผล เหมือนเครื่องมือเว็บ)
 
-4. **Open the script editor:** in the master Sheet, go to
-   **Extensions ▸ Apps Script**.
+4. **เปิดหน้าต่างเขียนสคริปต์:** ในไฟล์ Sheet หลัก ไปที่เมนู
+   **Extensions ▸ Apps Script**
 
-5. **Create the two script files:**
-   - Delete the default boilerplate in `Code.gs`, or just leave it empty.
-   - Click **+ ▸ Script** in the left sidebar, name it `Logic`, paste in
-     the full contents of [`Logic.js`](Logic.js).
-   - Click **+ ▸ Script** again, name it `Main`, paste in the full
-     contents of [`Main.js`](Main.js).
-   - Save (Ctrl+S / Cmd+S).
+5. **สร้างไฟล์สคริปต์ 2 ไฟล์:**
+   - ไฟล์ `Code.gs` ที่มีมาให้ตั้งแต่แรก จะลบโค้ดข้างในทิ้ง หรือปล่อยว่าง
+     ไว้เฉยๆ ก็ได้
+   - กด **+ ▸ Script** ที่แถบด้านซ้าย ตั้งชื่อว่า `Logic` แล้ว copy เนื้อหา
+     ทั้งหมดจากไฟล์ [`Logic.js`](Logic.js) มาวาง
+   - กด **+ ▸ Script** อีกครั้ง ตั้งชื่อว่า `Main` แล้ว copy เนื้อหาทั้งหมด
+     จากไฟล์ [`Main.js`](Main.js) มาวาง
+   - กด Save (Ctrl+S / Cmd+S)
 
-6. **Reload the spreadsheet tab** in your browser (a plain refresh). A
-   new **WO Summary** menu appears next to Help.
+6. **รีเฟรชหน้า spreadsheet** ในเบราว์เซอร์ (กด F5 ธรรมดา) จะมีเมนูใหม่
+   ชื่อ **WO Summary** โผล่ขึ้นมาข้างๆ เมนู Help
 
-7. Click **WO Summary ▸ Run Now**. The first time, Google will ask you to
-   authorize the script — click through **Advanced ▸ Go to [project
-   name] (unsafe)**. This warning is normal for any script you write
-   yourself that isn't published to the Marketplace; it's not a signal
-   that anything is actually wrong. It needs Sheets access because it
-   opens your source files and writes the output tabs.
+7. กด **WO Summary ▸ Run Now** ครั้งแรกที่กด Google จะถามขอสิทธิ์
+   (authorize) — ให้กด **Advanced ▸ Go to [ชื่อโปรเจกต์] (unsafe)**
+   คำเตือนนี้เป็นเรื่องปกติสำหรับสคริปต์ที่คุณเขียน/ติดตั้งเอง (ไม่ได้ผ่าน
+   การตรวจสอบจาก Google Marketplace) ไม่ได้แปลว่ามีอะไรผิดพลาด — ที่ต้อง
+   ขอสิทธิ์เพราะสคริปต์ต้องเปิดไฟล์ต้นทางของคุณและเขียนผลลง tab ต่างๆ
 
-8. Check the **Table 1**, **Table 2**, and **Combined Raw** tabs — the
-   script creates them automatically if they don't exist yet, and
-   overwrites them fresh on every run.
+8. เช็คที่ tab **Table 1**, **Table 2**, และ **Combined Raw** — สคริปต์จะ
+   สร้าง tab พวกนี้ให้อัตโนมัติถ้ายังไม่มี และจะเขียนทับข้อมูลเดิมใหม่
+   ทุกครั้งที่กด Run
 
-## Requirements for the source spreadsheets
+## เงื่อนไขของไฟล์ Sheet ต้นทาง
 
-- Your Google account needs at least **view access** to every source file
-  listed in Config (this is already satisfied if everyone's in the same
-  Google Workspace domain with normal internal sharing).
-- Each source file's timesheet data must follow the same column layout as
-  `krungsri.xlsx`: **Name-Surname, SQ, WO No., WO Name, FTE/OS**, then 31
-  daily columns — starting at cell **A3**.
+- บัญชี Google ของคุณต้องมีสิทธิ์**อย่างน้อยดูได้ (view access)** กับทุกไฟล์
+  ที่ใส่ไว้ใน Config (ถ้าทุกไฟล์อยู่ในองค์กร/โดเมนเดียวกันและแชร์กันไว้
+  ตามปกติอยู่แล้ว ก็ผ่านเงื่อนไขนี้อัตโนมัติ)
+- ข้อมูล timesheet ในแต่ละไฟล์ต้นทางต้องมีโครงสร้างคอลัมน์เหมือนกับ
+  `krungsri.xlsx`: **Name-Surname, SQ, WO No., WO Name, FTE/OS** แล้วตาม
+  ด้วยคอลัมน์วันที่ 31 คอลัมน์ — เริ่มที่เซลล์ **A3**
 
-## Files
+## ไฟล์ในโฟลเดอร์นี้
 
-- **`Logic.js`** — pure classification logic (no Sheets calls). Unit
-  tested; this is what actually decides CAPEX vs OPEX vs Non Charge vs
-  Unmapped and builds the two output tables.
-- **`Main.js`** — Sheets orchestration: reads Config/Mapping, opens each
-  source file, writes the output tabs with colors. Can't be unit tested
-  outside Apps Script (it's all `SpreadsheetApp` calls), so keep new
-  logic in `Logic.js` and keep this file thin.
-- **`tests/run-tests.js`** — run with `node tests/run-tests.js` from this
-  folder. Covers the same category rules and the same standard sample
-  dataset (4 squads, 1 unmapped WO) as the web tool's own test suite, so
-  the two stay behaviorally identical.
+- **`Logic.js`** — โค้ด logic การจำแนกล้วนๆ (ไม่ยุ่งกับ Sheets เลย) ผ่าน
+  การทดสอบแล้ว เป็นตัวที่ตัดสินว่าอะไรคือ CAPEX/OPEX/Non Charge/Unmapped
+  และสร้างตารางผลลัพธ์ทั้งสองตาราง
+- **`Main.js`** — ส่วนที่คุยกับ Google Sheets: อ่าน Config/Mapping, เปิด
+  ไฟล์ต้นทางแต่ละไฟล์, เขียน tab ผลลัพธ์พร้อมสี ไฟล์นี้ทดสอบนอก Apps
+  Script ไม่ได้ (เพราะเรียกใช้ `SpreadsheetApp` ล้วนๆ) เพราะฉะนั้น logic
+  ใหม่ๆ ควรใส่ไว้ใน `Logic.js` แทน แล้วให้ไฟล์นี้เรียกใช้แบบง่ายๆ พอ
+- **`tests/run-tests.js`** — รันด้วยคำสั่ง `node tests/run-tests.js` จาก
+  โฟลเดอร์นี้ ทดสอบกฎการจำแนกและข้อมูลตัวอย่างมาตรฐานชุดเดียวกับที่ใช้
+  ทดสอบเครื่องมือเว็บ เพื่อให้ผลลัพธ์ทั้งสองฝั่งตรงกันเสมอ
 
-## Relationship to `index.html`
+## ความสัมพันธ์กับ `index.html`
 
-This is a separate, standalone deliverable — it doesn't replace the
-`index.html` web tool. Use whichever fits the moment:
+เครื่องมือนี้เป็นคนละตัวกัน แยกออกมาต่างหาก **ไม่ได้มาแทนที่** เครื่องมือ
+เว็บ `index.html` — เลือกใช้ตามสถานการณ์:
 
-- **`index.html`** — quick, offline, one-off classification from a paste
-  or a single `.xlsx` upload. No Google account needed.
-- **This Apps Script** — recurring, multi-squad consolidation that runs
-  directly inside Google Sheets, with output colored in real cells and no
-  copy-paste step.
+- **`index.html`** — ใช้เร็วๆ, ทำงานแบบ offline, จำแนกครั้งเดียวจากการ
+  paste หรืออัปโหลดไฟล์ `.xlsx` ไฟล์เดียว ไม่ต้องมีบัญชี Google
+- **Apps Script (โฟลเดอร์นี้)** — ใช้กับงานที่ต้องทำซ้ำๆ ทุกเดือน ต้องรวม
+  ข้อมูลจากหลาย Sheet เข้าด้วยกัน ทำงานอยู่ใน Google Sheets เลย ผลลัพธ์
+  มีสีในเซลล์จริง ไม่ต้อง copy-paste
