@@ -99,6 +99,30 @@ test('buildTable1 groups columns by category, converts MH to Man-Day (÷8), and 
   assert.strictEqual(table.grandTotal, 18);
 });
 
+test('buildTable1 carries each column\'s raw WO No. through as col.woNo', () => {
+  const classified = [
+    { sq: 'SQ1', woKey: 'CAPEX-001', woLabel: 'ONE Corporate MVP1', woNo: 'CAPEX-001', category: 'CAPEX', mh: 8 }
+  ];
+  const table = App.buildTable1(classified);
+  assert.strictEqual(table.columns[0].woNo, 'CAPEX-001');
+  assert.strictEqual(table.columns[0].label, 'ONE Corporate MVP1');
+});
+
+test('columnHeaderText combines WO No. and WO Name, but avoids repeating them when there is no separate name', () => {
+  assert.strictEqual(App.columnHeaderText({ woNo: 'CAPEX-001', label: 'ONE Corporate MVP1' }), 'CAPEX-001 - ONE Corporate MVP1');
+  assert.strictEqual(App.columnHeaderText({ woNo: 'W999', label: 'W999' }), 'W999');
+  assert.strictEqual(App.columnHeaderText({ woNo: undefined, label: 'C1' }), 'C1');
+});
+
+test('table1ToRows header uses "WO No. - WO Name" per column', () => {
+  const classified = [
+    { sq: 'SQ1', woKey: 'CAPEX-001', woLabel: 'ONE Corporate MVP1', woNo: 'CAPEX-001', category: 'CAPEX', mh: 8 }
+  ];
+  const table1 = App.buildTable1(classified);
+  const rows = App.table1ToRows(table1);
+  assert.deepStrictEqual(rows.header, ['Squad', 'CAPEX-001 - ONE Corporate MVP1', 'Total']);
+});
+
 test('buildTable2 computes chargeable percentages and nulls out squads with no chargeable MH', () => {
   const classified = [
     { sq: 'SQ1', category: 'CAPEX', mh: 6 },

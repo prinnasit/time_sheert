@@ -117,7 +117,7 @@ function buildTable1(classifiedRows) {
     classifiedRows.forEach(row => {
       if (row.category !== cat || colSeen[row.woKey]) return;
       colSeen[row.woKey] = true;
-      columns.push({ key: row.woKey, label: row.woLabel, category: cat });
+      columns.push({ key: row.woKey, label: row.woLabel, woNo: row.woNo, category: cat });
     });
   });
 
@@ -173,6 +173,14 @@ function formatPct(p) {
   return p == null ? '–' : (Math.round(p * 10000) / 100).toFixed(2) + '%';
 }
 
+// Table 1's column header text: "WO No. - WO Name" when the two differ,
+// or just the label when there's no separate WO Name (woLabel already
+// fell back to the raw WO No. in that case, so showing it twice would be
+// redundant — e.g. an UNMAPPED WO with no name on record).
+function columnHeaderText(col) {
+  return col.woNo && col.woNo !== col.label ? col.woNo + ' - ' + col.label : col.label;
+}
+
 function csvEscape(v) {
   const s = v == null ? '' : String(v);
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -196,7 +204,7 @@ function toTSV(header, rows) {
 }
 
 function table1ToRows(table1) {
-  const header = ['Squad', ...table1.columns.map(c => c.label), 'Total'];
+  const header = ['Squad', ...table1.columns.map(c => columnHeaderText(c)), 'Total'];
   const rows = table1.squads.map(sq => [
     sq,
     ...table1.columns.map(col => table1.cellMatrix[sq][col.key] || 0),
@@ -224,7 +232,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
-    formatMH, formatPct, toCSV, toTSV, table1ToRows, table2ToRows
+    formatMH, formatPct, columnHeaderText, toCSV, toTSV, table1ToRows, table2ToRows
   };
 }
 </script>
@@ -823,7 +831,7 @@ if (typeof module !== 'undefined' && module.exports) {
     let html = '<table><thead><tr><th></th>';
     groups.forEach(g => { html += '<th colspan="' + g.span + '">' + CATEGORY_LABEL[g.category] + '</th>'; });
     html += '<th></th></tr><tr><th>Squad</th>';
-    table1.columns.forEach(col => { html += '<th>' + escapeHtml(col.label) + '</th>'; });
+    table1.columns.forEach(col => { html += '<th>' + escapeHtml(columnHeaderText(col)) + '</th>'; });
     html += '<th>Total</th></tr></thead><tbody>';
 
     table1.squads.forEach(sq => {
@@ -1048,7 +1056,7 @@ if (typeof module !== 'undefined' && module.exports) {
     html += clipCell('td', '', GRID_HEADER_BG, 'left', true) + '</tr>';
 
     html += '<tr>' + clipCell('td', 'Squad', GRID_HEADER_BG, 'left', true);
-    table1.columns.forEach(col => { html += clipCell('td', col.label, categoryBg(col.category), 'right', true); });
+    table1.columns.forEach(col => { html += clipCell('td', columnHeaderText(col), categoryBg(col.category), 'right', true); });
     html += clipCell('td', 'Total', GRID_HEADER_BG, 'right', true) + '</tr>';
 
     table1.squads.forEach(sq => {
