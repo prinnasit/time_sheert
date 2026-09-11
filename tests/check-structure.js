@@ -7,7 +7,7 @@ const requiredIds = [
   'mapping-grid', 'mapping-add-row-btn', 'mapping-input', 'clear-mapping-btn', 'mapping-status',
   'timesheet-grid', 'timesheet-add-row-btn', 'timesheet-input', 'xlsx-upload', 'upload-status',
   'run-btn', 'banners',
-  'table1-container', 'copy-table1-btn', 'download-table1-btn',
+  'table1-container', 'copy-table1-btn', 'download-table1-btn', 'new-month-btn', 'new-month-status',
   'table2-container', 'copy-table2-btn', 'download-table2-btn'
 ];
 

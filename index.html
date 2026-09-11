@@ -426,6 +426,7 @@ if (typeof module !== 'undefined' && module.exports) {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
   }
+  tr.remaining-row-computed td.remaining-computed { color: var(--text-muted); font-weight: 600; }
 </style>
 
 <header class="page-head">
@@ -469,6 +470,11 @@ if (typeof module !== 'undefined' && module.exports) {
     <button id="download-table1-btn" class="btn" type="button">Download CSV</button>
   </div>
   <div id="table1-container" class="table-scroll"></div>
+  <p class="card-desc" style="margin-top: 12px;">"Remaining (เดือนที่แล้ว)" พิมพ์เองได้ (จำไว้ให้) ส่วน "Remaining (เดือนนี้)" คำนวณอัตโนมัติ = เดือนที่แล้ว − ที่ทำได้เดือนนี้ พอจะเริ่มเดือนถัดไป กดปุ่มด้านล่างเพื่อเลื่อนยอดคงเหลือ</p>
+  <div class="row">
+    <button id="new-month-btn" class="btn" type="button">&#8635; ขึ้นเดือนใหม่</button>
+    <span id="new-month-status" class="status-text"></span>
+  </div>
 </section>
 
 <section class="card">
@@ -504,33 +510,53 @@ if (typeof module !== 'undefined' && module.exports) {
   const mappingAddRowBtn = document.getElementById('mapping-add-row-btn');
   const timesheetGridMount = document.getElementById('timesheet-grid');
   const timesheetAddRowBtn = document.getElementById('timesheet-add-row-btn');
+  const newMonthBtn = document.getElementById('new-month-btn');
+  const newMonthStatus = document.getElementById('new-month-status');
 
   const MAPPING_STORAGE_KEY = 'woTimesheetSummary.mappingText';
   const REMAINING_STORAGE_KEY = 'woTimesheetSummary.remaining';
-  const REMAINING_ROWS = [
-    { period: 'lastMonth', label: 'Remaining (เดือนที่แล้ว)' },
-    { period: 'thisMonth', label: 'Remaining (เดือนนี้)' }
-  ];
+  const REMAINING_LAST_LABEL = 'Remaining (เดือนที่แล้ว)';
+  const REMAINING_THIS_LABEL = 'Remaining (เดือนนี้)';
 
   let lastTable1Rows = null;
   let lastTable2Rows = null;
   let lastTable1 = null;
   let lastTable2 = null;
 
-  // Remaining budget/quota figures — same idea as the original template's
-  // "Remaining (JUL)"/"Remaining (AUG)" rows: manually typed, CAPEX columns
-  // only, not derived from timesheet data at all. Kept as its own bit of
-  // persisted state (keyed by CAPEX column's woKey) rather than folded into
-  // table1/table1ToRows, since it's user-entered supplementary data, not
-  // something the pure classification logic computes.
-  let remainingState = { lastMonth: {}, thisMonth: {} };
+  // Remaining budget/quota — a running balance per CAPEX column, matching
+  // the original template's "Remaining (JUL)"/"Remaining (AUG)" rows
+  // (values only under CAPEX columns; nothing computed from timesheet data
+  // touches OPEX/Non Charge/Total). Unlike the original template, "this
+  // month" is no longer independently typed — it's always
+  // last month − this run's actual Man-Day for that WO (table1.colTotals),
+  // so the two rows can never drift out of sync with each other. Only
+  // "last month" (the carried-in baseline) is stored; "New Month" moves the
+  // computed "this month" value into it for the next period.
+  let remainingState = { lastMonth: {} };
   try {
     const savedRemaining = localStorage.getItem(REMAINING_STORAGE_KEY);
-    if (savedRemaining) remainingState = JSON.parse(savedRemaining);
+    if (savedRemaining) {
+      const parsed = JSON.parse(savedRemaining);
+      if (parsed && parsed.lastMonth) remainingState = { lastMonth: parsed.lastMonth };
+    }
   } catch (e) { /* localStorage unavailable or corrupt saved value, start fresh */ }
 
   function saveRemainingState() {
     try { localStorage.setItem(REMAINING_STORAGE_KEY, JSON.stringify(remainingState)); } catch (e) { /* ignore */ }
+  }
+
+  function parseRemainingValue(raw) {
+    if (raw == null || raw === '') return null;
+    const n = Number(String(raw).trim());
+    return isNaN(n) ? null : n;
+  }
+
+  // null when "last month" isn't set (or isn't a valid number) for this WO
+  // yet — there's nothing meaningful to subtract from.
+  function computeThisMonthRemaining(table1, woKey) {
+    const lastVal = parseRemainingValue(remainingState.lastMonth[woKey]);
+    if (lastVal == null) return null;
+    return lastVal - (table1.colTotals[woKey] || 0);
   }
 
   const MAPPING_COLUMNS = [
@@ -812,22 +838,43 @@ if (typeof module !== 'undefined' && module.exports) {
     table1.columns.forEach(col => { html += '<td>' + formatMH(table1.colTotals[col.key]) + '</td>'; });
     html += '<td>' + formatMH(table1.grandTotal) + '</td></tr>';
 
-    REMAINING_ROWS.forEach(rr => {
-      html += '<tr class="remaining-row"><td>' + escapeHtml(rr.label) + '</td>';
-      table1.columns.forEach(col => {
-        if (col.category === 'CAPEX') {
-          const val = (remainingState[rr.period] && remainingState[rr.period][col.key]) || '';
-          html += '<td><input type="text" class="remaining-input" inputmode="decimal" ' +
-            'data-period="' + rr.period + '" data-wo-key="' + escapeHtml(col.key) + '" value="' + escapeHtml(val) + '"></td>';
-        } else {
-          html += '<td></td>';
-        }
-      });
-      html += '<td></td></tr>';
+    html += '<tr class="remaining-row"><td>' + escapeHtml(REMAINING_LAST_LABEL) + '</td>';
+    table1.columns.forEach(col => {
+      if (col.category === 'CAPEX') {
+        const raw = remainingState.lastMonth[col.key] || '';
+        html += '<td><input type="text" class="remaining-input" inputmode="decimal" ' +
+          'data-wo-key="' + escapeHtml(col.key) + '" value="' + escapeHtml(raw) + '"></td>';
+      } else {
+        html += '<td></td>';
+      }
     });
+    html += '<td></td></tr>';
+
+    html += '<tr class="remaining-row remaining-row-computed"><td>' + escapeHtml(REMAINING_THIS_LABEL) + '</td>';
+    table1.columns.forEach(col => {
+      if (col.category === 'CAPEX') {
+        const thisVal = computeThisMonthRemaining(table1, col.key);
+        html += '<td class="remaining-computed" data-wo-key="' + escapeHtml(col.key) + '">' +
+          (thisVal == null ? '–' : formatMH(thisVal)) + '</td>';
+      } else {
+        html += '<td></td>';
+      }
+    });
+    html += '<td></td></tr>';
 
     html += '</tbody></table>';
     table1Container.innerHTML = html;
+  }
+
+  // Updates just the computed "this month" cell for one WO, without
+  // touching the rest of the table — a full renderTable1() re-render would
+  // recreate the <input> elements and steal focus mid-keystroke.
+  function updateComputedRemainingCell(woKey) {
+    if (!lastTable1) return;
+    const cell = table1Container.querySelector('.remaining-computed[data-wo-key="' + CSS.escape(woKey) + '"]');
+    if (!cell) return;
+    const thisVal = computeThisMonthRemaining(lastTable1, woKey);
+    cell.textContent = thisVal == null ? '–' : formatMH(thisVal);
   }
 
   // Event delegation: the Remaining <input> cells are recreated by every
@@ -835,34 +882,50 @@ if (typeof module !== 'undefined' && module.exports) {
   // re-binding per input.
   table1Container.addEventListener('input', (e) => {
     if (!e.target.classList.contains('remaining-input')) return;
-    const period = e.target.dataset.period;
     const woKey = e.target.dataset.woKey;
     const val = e.target.value.trim();
-    if (!remainingState[period]) remainingState[period] = {};
-    if (val === '') delete remainingState[period][woKey];
-    else remainingState[period][woKey] = val;
+    if (val === '') delete remainingState.lastMonth[woKey];
+    else remainingState.lastMonth[woKey] = val;
     saveRemainingState();
+    updateComputedRemainingCell(woKey);
+    if (lastTable1Rows && lastTable1) appendRemainingRows(lastTable1Rows, lastTable1);
+  });
+
+  newMonthBtn.addEventListener('click', () => {
+    if (!lastTable1) { addBanner('error', 'กรุณากด Run ก่อนขึ้นเดือนใหม่'); return; }
+    lastTable1.columns.forEach(col => {
+      if (col.category !== 'CAPEX') return;
+      const thisVal = computeThisMonthRemaining(lastTable1, col.key);
+      if (thisVal != null) remainingState.lastMonth[col.key] = String(Math.round(thisVal * 100) / 100);
+    });
+    saveRemainingState();
+    renderTable1(lastTable1);
     if (lastTable1Rows) appendRemainingRows(lastTable1Rows, lastTable1);
+    newMonthStatus.textContent = 'อัปเดตแล้ว — "เดือนนี้" เลื่อนไปเป็น "เดือนที่แล้ว"';
+    setTimeout(() => { newMonthStatus.textContent = ''; }, 2500);
   });
 
   // Appends the two Remaining rows (label + CAPEX-only values, everything
   // else blank) onto an already-built table1ToRows() result, so Copy and
   // Download CSV carry the same rows visible on screen.
   function appendRemainingRows(rowsResult, table1) {
-    rowsResult.rows = rowsResult.rows.filter(r => !REMAINING_ROWS.some(rr => rr.label === r[0]));
-    REMAINING_ROWS.forEach(rr => {
-      const row = [rr.label];
-      table1.columns.forEach(col => {
-        if (col.category === 'CAPEX') {
-          const val = (remainingState[rr.period] && remainingState[rr.period][col.key]) || '';
-          row.push(val);
-        } else {
-          row.push('');
-        }
-      });
-      row.push('');
-      rowsResult.rows.push(row);
+    rowsResult.rows = rowsResult.rows.filter(r => r[0] !== REMAINING_LAST_LABEL && r[0] !== REMAINING_THIS_LABEL);
+
+    const lastRow = [REMAINING_LAST_LABEL];
+    const thisRow = [REMAINING_THIS_LABEL];
+    table1.columns.forEach(col => {
+      if (col.category === 'CAPEX') {
+        lastRow.push(remainingState.lastMonth[col.key] || '');
+        const thisVal = computeThisMonthRemaining(table1, col.key);
+        thisRow.push(thisVal == null ? '' : thisVal);
+      } else {
+        lastRow.push('');
+        thisRow.push('');
+      }
     });
+    lastRow.push('');
+    thisRow.push('');
+    rowsResult.rows.push(lastRow, thisRow);
     return rowsResult;
   }
 
@@ -1000,18 +1063,26 @@ if (typeof module !== 'undefined' && module.exports) {
     table1.columns.forEach(col => { html += clipCell('td', formatMH(table1.colTotals[col.key]), GRID_SUMMARY_BG, 'right', true); });
     html += clipCell('td', formatMH(table1.grandTotal), GRID_SUMMARY_BG, 'right', true) + '</tr>';
 
-    REMAINING_ROWS.forEach(rr => {
-      html += '<tr>' + clipCell('td', rr.label, '#ffffff', 'left', true);
-      table1.columns.forEach(col => {
-        if (col.category === 'CAPEX') {
-          const val = (remainingState[rr.period] && remainingState[rr.period][col.key]) || '';
-          html += clipCell('td', val, categoryBg('CAPEX'), 'right', false);
-        } else {
-          html += clipCell('td', '', '#ffffff', 'right', false);
-        }
-      });
-      html += clipCell('td', '', '#ffffff', 'right', false) + '</tr>';
+    html += '<tr>' + clipCell('td', REMAINING_LAST_LABEL, '#ffffff', 'left', true);
+    table1.columns.forEach(col => {
+      if (col.category === 'CAPEX') {
+        html += clipCell('td', remainingState.lastMonth[col.key] || '', categoryBg('CAPEX'), 'right', false);
+      } else {
+        html += clipCell('td', '', '#ffffff', 'right', false);
+      }
     });
+    html += clipCell('td', '', '#ffffff', 'right', false) + '</tr>';
+
+    html += '<tr>' + clipCell('td', REMAINING_THIS_LABEL, '#ffffff', 'left', true);
+    table1.columns.forEach(col => {
+      if (col.category === 'CAPEX') {
+        const thisVal = computeThisMonthRemaining(table1, col.key);
+        html += clipCell('td', thisVal == null ? '' : formatMH(thisVal), categoryBg('CAPEX'), 'right', false);
+      } else {
+        html += clipCell('td', '', '#ffffff', 'right', false);
+      }
+    });
+    html += clipCell('td', '', '#ffffff', 'right', false) + '</tr>';
 
     html += '</table>';
     return html;
