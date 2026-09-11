@@ -1029,6 +1029,11 @@ if (typeof module !== 'undefined' && module.exports) {
   const CATEGORY_BG = { CAPEX: '#d7f2df', OPEX: '#d8e8fc', NON_CHARGE: '#fdf0cf', UNMAPPED: '#fbdcdc' };
   const GRID_HEADER_BG = '#eef0f4';
   const GRID_SUMMARY_BG = '#dde6fb';
+  // Distinct from the category colors on purpose — matches the original
+  // template's own Remaining (JUL)/Remaining (AUG) row fills (a salmon
+  // shade for the carried-in baseline, blue for the computed balance).
+  const REMAINING_LAST_BG = '#fbe0cf';
+  const REMAINING_THIS_BG = '#d6e4f7';
 
   function categoryBg(cat) { return CATEGORY_BG[cat] || '#ffffff'; }
 
@@ -1062,19 +1067,19 @@ if (typeof module !== 'undefined' && module.exports) {
     table1.squads.forEach(sq => {
       html += '<tr>' + clipCell('td', sq, '#ffffff', 'left', false);
       table1.columns.forEach(col => {
-        html += clipCell('td', formatMH(table1.cellMatrix[sq][col.key] || 0), categoryBg(col.category), 'right', false);
+        html += clipCell('td', formatMH(table1.cellMatrix[sq][col.key] || 0), '#ffffff', 'right', false);
       });
       html += clipCell('td', formatMH(table1.rowTotals[sq]), '#ffffff', 'right', false) + '</tr>';
     });
 
-    html += '<tr>' + clipCell('td', 'Summary', GRID_SUMMARY_BG, 'left', true);
-    table1.columns.forEach(col => { html += clipCell('td', formatMH(table1.colTotals[col.key]), GRID_SUMMARY_BG, 'right', true); });
-    html += clipCell('td', formatMH(table1.grandTotal), GRID_SUMMARY_BG, 'right', true) + '</tr>';
+    html += '<tr>' + clipCell('td', 'Summary', '#ffffff', 'left', true);
+    table1.columns.forEach(col => { html += clipCell('td', formatMH(table1.colTotals[col.key]), '#ffffff', 'right', true); });
+    html += clipCell('td', formatMH(table1.grandTotal), '#ffffff', 'right', true) + '</tr>';
 
     html += '<tr>' + clipCell('td', REMAINING_LAST_LABEL, '#ffffff', 'left', true);
     table1.columns.forEach(col => {
       if (col.category === 'CAPEX') {
-        html += clipCell('td', remainingState.lastMonth[col.key] || '', categoryBg('CAPEX'), 'right', false);
+        html += clipCell('td', remainingState.lastMonth[col.key] || '', REMAINING_LAST_BG, 'right', false);
       } else {
         html += clipCell('td', '', '#ffffff', 'right', false);
       }
@@ -1085,7 +1090,7 @@ if (typeof module !== 'undefined' && module.exports) {
     table1.columns.forEach(col => {
       if (col.category === 'CAPEX') {
         const thisVal = computeThisMonthRemaining(table1, col.key);
-        html += clipCell('td', thisVal == null ? '' : formatMH(thisVal), categoryBg('CAPEX'), 'right', false);
+        html += clipCell('td', thisVal == null ? '' : formatMH(thisVal), REMAINING_THIS_BG, 'right', false);
       } else {
         html += clipCell('td', '', '#ffffff', 'right', false);
       }
