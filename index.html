@@ -111,14 +111,20 @@ function buildTable1(classifiedRows) {
     if (!squadSeen[row.sq]) { squadSeen[row.sq] = true; squads.push(row.sq); }
   });
 
+  // Columns stay grouped by category (needed for the colspan header band),
+  // but within each group they're sorted by WO No. — numeric-aware so
+  // "WO-2" sorts before "WO-10" rather than after it.
   const columns = [];
-  const colSeen = {};
   CATEGORY_ORDER.forEach(cat => {
+    const seen = {};
+    const catColumns = [];
     classifiedRows.forEach(row => {
-      if (row.category !== cat || colSeen[row.woKey]) return;
-      colSeen[row.woKey] = true;
-      columns.push({ key: row.woKey, label: row.woLabel, woNo: row.woNo, category: cat });
+      if (row.category !== cat || seen[row.woKey]) return;
+      seen[row.woKey] = true;
+      catColumns.push({ key: row.woKey, label: row.woLabel, woNo: row.woNo, category: cat });
     });
+    catColumns.sort((a, b) => a.woNo.localeCompare(b.woNo, undefined, { numeric: true, sensitivity: 'base' }));
+    columns.push(...catColumns);
   });
 
   const cellMatrix = {};
@@ -173,14 +179,6 @@ function formatPct(p) {
   return p == null ? '–' : (Math.round(p * 10000) / 100).toFixed(2) + '%';
 }
 
-// Table 1's column header text: "WO No. - WO Name" when the two differ,
-// or just the label when there's no separate WO Name (woLabel already
-// fell back to the raw WO No. in that case, so showing it twice would be
-// redundant — e.g. an UNMAPPED WO with no name on record).
-function columnHeaderText(col) {
-  return col.woNo && col.woNo !== col.label ? col.woNo + ' - ' + col.label : col.label;
-}
-
 function csvEscape(v) {
   const s = v == null ? '' : String(v);
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -204,12 +202,18 @@ function toTSV(header, rows) {
 }
 
 function table1ToRows(table1) {
-  const header = ['Squad', ...table1.columns.map(c => columnHeaderText(c)), 'Total'];
-  const rows = table1.squads.map(sq => [
+  // WO No. and WO Name are two separate header rows (matching the
+  // on-screen/colored-copy layout): `header` carries the WO No. row,
+  // and the WO Name row is the first entry of `rows` (Squad/Total cells
+  // left blank on it, same convention plain TSV/CSV use for any header
+  // that doesn't apply to a given column).
+  const header = ['Squad', ...table1.columns.map(c => c.woNo || c.label), 'Total'];
+  const woNameRow = ['', ...table1.columns.map(c => c.label), ''];
+  const rows = [woNameRow, ...table1.squads.map(sq => [
     sq,
     ...table1.columns.map(col => table1.cellMatrix[sq][col.key] || 0),
     table1.rowTotals[sq]
-  ]);
+  ])];
   const summary = ['Summary', ...table1.columns.map(c => table1.colTotals[c.key]), table1.grandTotal];
   rows.push(summary);
   return { header, rows };
@@ -232,7 +236,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
-    formatMH, formatPct, columnHeaderText, toCSV, toTSV, table1ToRows, table2ToRows
+    formatMH, formatPct, toCSV, toTSV, table1ToRows, table2ToRows
   };
 }
 </script>
@@ -389,6 +393,13 @@ if (typeof module !== 'undefined' && module.exports) {
   }
   table.input-grid td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0; }
   table.input-grid th.grid-del-col, table.input-grid td.grid-del-col { border-right: none; width: 30px; }
+  table.input-grid td.row-num {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    background: var(--surface-alt);
+    user-select: none;
+  }
   table.input-grid input, table.input-grid select {
     display: block;
     width: 100%;
@@ -593,8 +604,14 @@ if (typeof module !== 'undefined' && module.exports) {
   // that the rest of this script already reads from — so Run, localStorage,
   // and the .xlsx upload path all work completely unchanged below.
 
-  function buildGridHeaderRow(columns) {
+  function buildGridHeaderRow(columns, showRowNumbers) {
     const tr = document.createElement('tr');
+    if (showRowNumbers) {
+      const numTh = document.createElement('th');
+      numTh.textContent = '#';
+      numTh.style.minWidth = '34px';
+      tr.appendChild(numTh);
+    }
     columns.forEach(col => {
       const th = document.createElement('th');
       th.textContent = col.label;
@@ -607,8 +624,13 @@ if (typeof module !== 'undefined' && module.exports) {
     return tr;
   }
 
-  function buildGridDataRow(columns, values) {
+  function buildGridDataRow(columns, values, showRowNumbers) {
     const tr = document.createElement('tr');
+    if (showRowNumbers) {
+      const numTd = document.createElement('td');
+      numTd.className = 'row-num';
+      tr.appendChild(numTd);
+    }
     columns.forEach((col, i) => {
       const td = document.createElement('td');
       let el;
@@ -643,11 +665,11 @@ if (typeof module !== 'undefined' && module.exports) {
     return tr;
   }
 
-  function createGridEditor(mount, columns, addRowBtn, minRows, onChange) {
+  function createGridEditor(mount, columns, addRowBtn, minRows, onChange, showRowNumbers) {
     const table = document.createElement('table');
     table.className = 'input-grid';
     const thead = document.createElement('thead');
-    thead.appendChild(buildGridHeaderRow(columns));
+    thead.appendChild(buildGridHeaderRow(columns, showRowNumbers));
     const tbody = document.createElement('tbody');
     table.appendChild(thead);
     table.appendChild(tbody);
@@ -659,11 +681,18 @@ if (typeof module !== 'undefined' && module.exports) {
     function cellsOfRow(tr) { return Array.from(tr.querySelectorAll('input, select')); }
     function allRows() { return Array.from(tbody.children); }
     function addRow(values) {
-      const tr = buildGridDataRow(columns, values || []);
+      const tr = buildGridDataRow(columns, values || [], showRowNumbers);
       tbody.appendChild(tr);
       return tr;
     }
     function ensureMinRows() { while (tbody.children.length < minRows) addRow([]); }
+    function renumberRows() {
+      if (!showRowNumbers) return;
+      allRows().forEach((tr, i) => {
+        const cell = tr.querySelector('.row-num');
+        if (cell) cell.textContent = String(i + 1);
+      });
+    }
     function focusCell(tr, colIndex) {
       if (!tr) return;
       const cells = cellsOfRow(tr);
@@ -681,6 +710,7 @@ if (typeof module !== 'undefined' && module.exports) {
       tbody.innerHTML = '';
       (rows || []).forEach(r => addRow(r));
       ensureMinRows();
+      renumberRows();
     }
 
     tbody.addEventListener('click', (e) => {
@@ -688,6 +718,7 @@ if (typeof module !== 'undefined' && module.exports) {
       const tr = e.target.closest('tr');
       if (tbody.children.length > 1) tr.remove(); else cellsOfRow(tr).forEach(el => { el.value = ''; });
       ensureMinRows();
+      renumberRows();
       onChange();
     });
 
@@ -697,20 +728,20 @@ if (typeof module !== 'undefined' && module.exports) {
     tbody.addEventListener('keydown', (e) => {
       const el = e.target;
       if (!(el.matches('input') || el.matches('select'))) return;
-      const td = el.closest('td');
-      const tr = td.closest('tr');
-      const colIndex = Array.from(tr.children).indexOf(td);
+      const tr = el.closest('tr');
+      const colIndex = cellsOfRow(tr).indexOf(el);
       const rows = allRows();
       const rowIndex = rows.indexOf(tr);
 
       if (e.key === 'Enter') {
         e.preventDefault();
         let nextTr = rows[rowIndex + 1];
-        if (!nextTr) { nextTr = addRow([]); onChange(); }
+        if (!nextTr) { nextTr = addRow([]); renumberRows(); onChange(); }
         focusCell(nextTr, colIndex);
       } else if (e.key === 'Tab' && !e.shiftKey && colIndex === columns.length - 1 && rowIndex === rows.length - 1) {
         e.preventDefault();
         const newTr = addRow([]);
+        renumberRows();
         onChange();
         focusCell(newTr, 0);
       } else if (e.key === 'ArrowDown' && el.tagName !== 'SELECT') {
@@ -729,9 +760,8 @@ if (typeof module !== 'undefined' && module.exports) {
       if (text == null || (!text.includes('\t') && !text.includes('\n'))) return;
       e.preventDefault();
       const block = splitPasteBlock(text);
-      const td = el.closest('td');
-      const tr = td.closest('tr');
-      const startCol = Array.from(tr.children).indexOf(td);
+      const tr = el.closest('tr');
+      const startCol = cellsOfRow(tr).indexOf(el);
       let rows = allRows();
       const startRowIndex = rows.indexOf(tr);
 
@@ -745,11 +775,13 @@ if (typeof module !== 'undefined' && module.exports) {
         });
       });
       ensureMinRows();
+      renumberRows();
       onChange();
     });
 
     ensureMinRows();
-    if (addRowBtn) addRowBtn.addEventListener('click', () => { const tr = addRow([]); onChange(); focusCell(tr, 0); });
+    renumberRows();
+    if (addRowBtn) addRowBtn.addEventListener('click', () => { const tr = addRow([]); renumberRows(); onChange(); focusCell(tr, 0); });
 
     return { getRows, setRows };
   }
@@ -822,7 +854,7 @@ if (typeof module !== 'undefined' && module.exports) {
   const timesheetGrid = createGridEditor(timesheetGridMount, TIMESHEET_COLUMNS, timesheetAddRowBtn, 8, () => {
     timesheetInput.value = serializeGridToTSV(TIMESHEET_COLUMNS.map(c => c.label), timesheetGrid);
     timesheetInput.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+  }, true);
 
   try {
     const saved = localStorage.getItem(MAPPING_STORAGE_KEY);
@@ -889,9 +921,13 @@ if (typeof module !== 'undefined' && module.exports) {
 
     let html = '<table><thead><tr><th></th>';
     groups.forEach(g => { html += '<th colspan="' + g.span + '">' + CATEGORY_LABEL[g.category] + '</th>'; });
-    html += '<th></th></tr><tr><th>Squad</th>';
-    table1.columns.forEach(col => { html += '<th>' + escapeHtml(columnHeaderText(col)) + '</th>'; });
-    html += '<th>Total</th></tr></thead><tbody>';
+    html += '<th></th></tr>';
+    html += '<tr><th rowspan="2">Squad</th>';
+    table1.columns.forEach(col => { html += '<th>' + escapeHtml(col.woNo || col.label) + '</th>'; });
+    html += '<th rowspan="2">Total</th></tr>';
+    html += '<tr>';
+    table1.columns.forEach(col => { html += '<th>' + escapeHtml(col.label) + '</th>'; });
+    html += '</tr></thead><tbody>';
 
     table1.squads.forEach(sq => {
       html += '<tr><td>' + escapeHtml(sq) + '</td>';
@@ -1102,8 +1138,8 @@ if (typeof module !== 'undefined' && module.exports) {
     return 'background:' + bg + ';border:1px solid #ccc;padding:4px 8px;text-align:' + align + ';' + (bold ? 'font-weight:700;' : '');
   }
 
-  function clipCell(tag, text, bg, align, bold, colspan) {
-    return '<' + tag + (colspan ? ' colspan="' + colspan + '"' : '') +
+  function clipCell(tag, text, bg, align, bold, colspan, rowspan) {
+    return '<' + tag + (colspan ? ' colspan="' + colspan + '"' : '') + (rowspan ? ' rowspan="' + rowspan + '"' : '') +
       ' style="' + clipCellStyle(bg, align, bold) + '">' + escapeHtml(text) + '</' + tag + '>';
   }
 
@@ -1121,9 +1157,13 @@ if (typeof module !== 'undefined' && module.exports) {
     groups.forEach(g => { html += clipCell('td', CATEGORY_LABEL[g.category], categoryBg(g.category), 'center', true, g.span); });
     html += clipCell('td', '', GRID_HEADER_BG, 'left', true) + '</tr>';
 
-    html += '<tr>' + clipCell('td', 'Squad', GRID_HEADER_BG, 'left', true);
-    table1.columns.forEach(col => { html += clipCell('td', columnHeaderText(col), categoryBg(col.category), 'right', true); });
-    html += clipCell('td', 'Total', GRID_HEADER_BG, 'right', true) + '</tr>';
+    html += '<tr>' + clipCell('td', 'Squad', GRID_HEADER_BG, 'left', true, null, 2);
+    table1.columns.forEach(col => { html += clipCell('td', col.woNo || col.label, categoryBg(col.category), 'right', true); });
+    html += clipCell('td', 'Total', GRID_HEADER_BG, 'right', true, null, 2) + '</tr>';
+
+    html += '<tr>';
+    table1.columns.forEach(col => { html += clipCell('td', col.label, categoryBg(col.category), 'right', true); });
+    html += '</tr>';
 
     table1.squads.forEach(sq => {
       html += '<tr>' + clipCell('td', sq, '#ffffff', 'left', false);

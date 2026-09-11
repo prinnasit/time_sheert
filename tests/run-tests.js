@@ -108,19 +108,28 @@ test('buildTable1 carries each column\'s raw WO No. through as col.woNo', () => 
   assert.strictEqual(table.columns[0].label, 'ONE Corporate MVP1');
 });
 
-test('columnHeaderText combines WO No. and WO Name, but avoids repeating them when there is no separate name', () => {
-  assert.strictEqual(App.columnHeaderText({ woNo: 'CAPEX-001', label: 'ONE Corporate MVP1' }), 'CAPEX-001 - ONE Corporate MVP1');
-  assert.strictEqual(App.columnHeaderText({ woNo: 'W999', label: 'W999' }), 'W999');
-  assert.strictEqual(App.columnHeaderText({ woNo: undefined, label: 'C1' }), 'C1');
+test('buildTable1 sorts columns by WO No. (numeric-aware) within each category', () => {
+  const classified = [
+    { sq: 'SQ1', woKey: 'CAPEX-010', woLabel: 'Ten', woNo: 'CAPEX-010', category: 'CAPEX', mh: 8 },
+    { sq: 'SQ1', woKey: 'CAPEX-002', woLabel: 'Two', woNo: 'CAPEX-002', category: 'CAPEX', mh: 8 },
+    { sq: 'SQ1', woKey: 'CAPEX-001', woLabel: 'One', woNo: 'CAPEX-001', category: 'CAPEX', mh: 8 }
+  ];
+  const table = App.buildTable1(classified);
+  // Numeric-aware: CAPEX-002 sorts before CAPEX-010 (not lexically, where
+  // "10" < "2"), and CAPEX-001 sorts first of all.
+  assert.deepStrictEqual(table.columns.map(c => c.woNo), ['CAPEX-001', 'CAPEX-002', 'CAPEX-010']);
 });
 
-test('table1ToRows header uses "WO No. - WO Name" per column', () => {
+test('table1ToRows puts WO No. in the header row and WO Name in a separate first row', () => {
   const classified = [
     { sq: 'SQ1', woKey: 'CAPEX-001', woLabel: 'ONE Corporate MVP1', woNo: 'CAPEX-001', category: 'CAPEX', mh: 8 }
   ];
   const table1 = App.buildTable1(classified);
   const rows = App.table1ToRows(table1);
-  assert.deepStrictEqual(rows.header, ['Squad', 'CAPEX-001 - ONE Corporate MVP1', 'Total']);
+  assert.deepStrictEqual(rows.header, ['Squad', 'CAPEX-001', 'Total']);
+  assert.deepStrictEqual(rows.rows[0], ['', 'ONE Corporate MVP1', '']);
+  assert.strictEqual(rows.rows[1][0], 'SQ1');
+  assert.strictEqual(rows.rows[2][0], 'Summary');
 });
 
 test('buildTable2 computes chargeable percentages and nulls out squads with no chargeable MH', () => {
@@ -167,8 +176,9 @@ test('table1ToRows and table2ToRows produce full-precision numeric rows plus tot
   const table1 = App.buildTable1(classified);
   const t1rows = App.table1ToRows(table1);
   assert.deepStrictEqual(t1rows.header, ['Squad', 'C1', 'O1', 'Total']);
-  assert.strictEqual(t1rows.rows[0][1], (1 / 3) / App.MH_PER_DAY); // Table 1 is Man-Day (÷8), full precision preserved
-  assert.strictEqual(t1rows.rows[1][0], 'Summary');
+  assert.strictEqual(t1rows.rows[0][0], ''); // rows[0] is the WO Name row, not a squad row
+  assert.strictEqual(t1rows.rows[1][1], (1 / 3) / App.MH_PER_DAY); // Table 1 is Man-Day (÷8), full precision preserved
+  assert.strictEqual(t1rows.rows[2][0], 'Summary');
 
   const table2 = App.buildTable2(classified);
   const t2rows = App.table2ToRows(table2);
