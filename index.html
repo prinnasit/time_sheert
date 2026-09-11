@@ -576,7 +576,15 @@ if (typeof module !== 'undefined' && module.exports) {
   function computeThisMonthRemaining(table1, woKey) {
     const lastVal = parseRemainingValue(remainingState.lastMonth[woKey]);
     if (lastVal == null) return null;
-    return lastVal - (table1.colTotals[woKey] || 0);
+    // Subtract the value as displayed (2 decimals), not the raw sum.
+    // colTotals is a running sum of many MH/8 fractions and can land a
+    // hair off a clean 2-decimal value (e.g. 100.875, shown as "100.88")
+    // — subtracting that raw figure while the user reads "100.88" off
+    // the Summary row produces a result that looks wrong by a cent
+    // (202.88 - 100.88 "should" be 102.00, not 102.01). Rounding first
+    // keeps the on-screen arithmetic exact.
+    const usedAsDisplayed = Math.round((table1.colTotals[woKey] || 0) * 100) / 100;
+    return lastVal - usedAsDisplayed;
   }
 
   const MAPPING_COLUMNS = [
