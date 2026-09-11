@@ -402,6 +402,7 @@ if (typeof module !== 'undefined' && module.exports) {
     outline: none;
   }
   table.input-grid input.numeric { text-align: right; min-width: 46px; }
+  table.input-grid input:disabled { background: var(--surface-alt); color: var(--text-muted); opacity: .5; cursor: not-allowed; }
   table.input-grid input:focus, table.input-grid select:focus {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     box-shadow: inset 0 0 0 2px var(--accent);
@@ -570,7 +571,12 @@ if (typeof module !== 'undefined' && module.exports) {
   const MAPPING_COLUMNS = [
     { label: 'WO No.', type: 'text', width: '150px' },
     { label: 'Category', type: 'select', options: ['', 'CAPEX', 'OPEX', 'Non Charge'], width: '130px' },
-    { label: 'WO Name', type: 'text', width: '240px' }
+    { label: 'WO Name', type: 'text', width: '240px' },
+    // Same value as Table 1's own "Remaining (last month)" row (they share
+    // remainingState.lastMonth, kept in sync both ways) — shown here too so
+    // it's visible/editable without needing to paste a timesheet and Run
+    // first. Only meaningful for CAPEX rows; disabled otherwise.
+    { label: REMAINING_LAST_LABEL, type: 'text', width: '150px', numeric: true, cellClass: 'mapping-remaining-input' }
   ];
 
   const TIMESHEET_COLUMNS = [
@@ -619,6 +625,7 @@ if (typeof module !== 'undefined' && module.exports) {
         el.type = 'text';
         if (col.numeric) { el.className = 'numeric'; el.inputMode = 'decimal'; }
       }
+      if (col.cellClass) el.classList.add(col.cellClass);
       el.value = (values && values[i]) || '';
       td.appendChild(el);
       tr.appendChild(td);
@@ -757,9 +764,59 @@ if (typeof module !== 'undefined' && module.exports) {
     grid.setRows(lines.slice(1).map(line => line.split('\t')));
   }
 
+  // Keeps the WO Mapping grid's "Remaining (last month)" column (4th
+  // column) in sync with remainingState — enabled + populated only for
+  // rows currently marked CAPEX, reading each row's live WO No./Category
+  // straight from the DOM (they can change at any time as the user types).
+  // Never overwrites a cell the user is actively typing into.
+  function syncMappingRemainingDisplay() {
+    const rows = mappingGridMount.querySelectorAll('tbody tr');
+    rows.forEach(tr => {
+      const cells = Array.from(tr.querySelectorAll('input, select'));
+      const woNo = ((cells[0] && cells[0].value) || '').trim();
+      const category = cells[1] ? cells[1].value : '';
+      const remainingInput = cells[3];
+      if (!remainingInput) return;
+      const isCapex = !!woNo && category === 'CAPEX';
+      remainingInput.disabled = !isCapex;
+      if (document.activeElement === remainingInput) return;
+      remainingInput.value = isCapex ? (remainingState.lastMonth[normalizeWO(woNo)] || '') : '';
+    });
+  }
+
+  // Pushes a value into Table 1's own "last month" input for one WO, if
+  // that input currently exists on screen (Table 1 has been Run) — so
+  // editing the Mapping grid's Remaining column updates Table 1 too,
+  // without waiting for the next Run.
+  function syncTable1RemainingInput(woKey, val) {
+    const input = table1Container.querySelector('.remaining-input[data-wo-key="' + CSS.escape(woKey) + '"]');
+    if (input && document.activeElement !== input) input.value = val || '';
+  }
+
   const mappingGrid = createGridEditor(mappingGridMount, MAPPING_COLUMNS, mappingAddRowBtn, 6, () => {
     mappingInput.value = serializeGridToTSV(MAPPING_COLUMNS.map(c => c.label), mappingGrid);
     mappingInput.dispatchEvent(new Event('input', { bubbles: true }));
+    syncMappingRemainingDisplay();
+  });
+
+  // Dedicated listener for the Remaining column specifically — the grid's
+  // generic onChange above only re-syncs display (enabled state + value),
+  // it doesn't know which cell fired or write into remainingState itself.
+  mappingGridMount.addEventListener('input', (e) => {
+    if (!e.target.classList.contains('mapping-remaining-input')) return;
+    const tr = e.target.closest('tr');
+    const cells = Array.from(tr.querySelectorAll('input, select'));
+    const woNo = ((cells[0] && cells[0].value) || '').trim();
+    const category = cells[1] ? cells[1].value : '';
+    if (!woNo || category !== 'CAPEX') return; // shouldn't fire while disabled, but guard anyway
+    const woKey = normalizeWO(woNo);
+    const val = e.target.value.trim();
+    if (val === '') delete remainingState.lastMonth[woKey];
+    else remainingState.lastMonth[woKey] = val;
+    saveRemainingState();
+    updateComputedRemainingCell(woKey);
+    syncTable1RemainingInput(woKey, val);
+    if (lastTable1Rows && lastTable1) appendRemainingRows(lastTable1Rows, lastTable1);
   });
 
   const timesheetGrid = createGridEditor(timesheetGridMount, TIMESHEET_COLUMNS, timesheetAddRowBtn, 8, () => {
@@ -772,6 +829,7 @@ if (typeof module !== 'undefined' && module.exports) {
     if (saved) mappingInput.value = saved;
   } catch (e) { /* localStorage unavailable, ignore */ }
   populateGridFromTSV(mappingGrid, mappingInput.value);
+  syncMappingRemainingDisplay();
 
   mappingInput.addEventListener('input', () => {
     try { localStorage.setItem(MAPPING_STORAGE_KEY, mappingInput.value); } catch (e) { /* ignore */ }
@@ -781,6 +839,7 @@ if (typeof module !== 'undefined' && module.exports) {
     mappingGrid.setRows([]);
     mappingInput.value = '';
     try { localStorage.removeItem(MAPPING_STORAGE_KEY); } catch (e) { /* ignore */ }
+    syncMappingRemainingDisplay();
     mappingStatus.textContent = 'Cleared';
     setTimeout(() => { mappingStatus.textContent = ''; }, 1500);
   });
@@ -896,6 +955,7 @@ if (typeof module !== 'undefined' && module.exports) {
     else remainingState.lastMonth[woKey] = val;
     saveRemainingState();
     updateComputedRemainingCell(woKey);
+    syncMappingRemainingDisplay();
     if (lastTable1Rows && lastTable1) appendRemainingRows(lastTable1Rows, lastTable1);
   });
 
@@ -908,6 +968,7 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     saveRemainingState();
     renderTable1(lastTable1);
+    syncMappingRemainingDisplay();
     if (lastTable1Rows) appendRemainingRows(lastTable1Rows, lastTable1);
     newMonthStatus.textContent = 'อัปเดตแล้ว — "เดือนนี้" เลื่อนไปเป็น "เดือนที่แล้ว"';
     setTimeout(() => { newMonthStatus.textContent = ''; }, 2500);
