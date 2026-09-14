@@ -904,6 +904,12 @@ if (typeof module !== 'undefined' && module.exports) {
         uploadStatus.textContent = 'Failed to read file: ' + err.message;
       }
     };
+    reader.onerror = () => {
+      uploadStatus.textContent = 'อ่านไฟล์ไม่สำเร็จ (' + file.name + ') — ไฟล์อาจเสียหายหรือถูกเปิดใช้งานอยู่';
+    };
+    // Reset so selecting the exact same file again still fires 'change'
+    // (browsers skip the event when the input's value hasn't changed).
+    xlsxUpload.value = '';
     reader.readAsArrayBuffer(file);
   });
 
@@ -1282,7 +1288,9 @@ if (typeof module !== 'undefined' && module.exports) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Deferred: revoking immediately after click() is a known race in
+    // Firefox, where the download can still be reading the blob URL.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   copyTable1Btn.addEventListener('click', () => copyRows(lastTable1Rows, lastTable1 ? buildTable1ClipboardHTML(lastTable1) : '', copyTable1Btn));
