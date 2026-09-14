@@ -71,10 +71,21 @@ test('parseDataRows handles Unicode names (Thai) without corruption', () => {
 
 // -- parseMappingText / classifyRows -------------------------------------
 
-test('parseMappingText: a duplicate WO No. with two categories has the LAST one win (documented, not a crash)', () => {
+test('parseMappingText: a duplicate WO No. with two categories has the LAST one win, and is reported in duplicateWOs', () => {
   const result = App.parseMappingText('CAPEX-001\tCAPEX\tFirst\nCAPEX-001\tOPEX\tSecond');
   assert.strictEqual(result.map['CAPEX-001'].category, 'OPEX');
   assert.strictEqual(result.map['CAPEX-001'].name, 'Second');
+  assert.deepStrictEqual(result.duplicateWOs, ['CAPEX-001']);
+});
+
+test('parseMappingText: a duplicate WO No. written with different casing is still detected (normalized key)', () => {
+  const result = App.parseMappingText('capex-001\tCAPEX\tFirst\nCAPEX-001\tCAPEX\tSecond');
+  assert.deepStrictEqual(result.duplicateWOs, ['CAPEX-001']);
+});
+
+test('parseMappingText: no false positives — distinct WO Nos never appear in duplicateWOs', () => {
+  const result = App.parseMappingText('CAPEX-001\tCAPEX\tOne\nCAPEX-002\tCAPEX\tTwo');
+  assert.deepStrictEqual(result.duplicateWOs, []);
 });
 
 test('classifyRows matches WO No. case-insensitively against the mapping', () => {
@@ -165,6 +176,25 @@ test('toCSV correctly quotes a value containing only a newline (RFC 4180)', () =
 test('toCSV handles Unicode (Thai) text without corruption or unnecessary quoting', () => {
   const csv = App.toCSV(['ชื่อ'], [['สมชาย ใจดี']]);
   assert.strictEqual(csv, 'ชื่อ\r\nสมชาย ใจดี');
+});
+
+test('neutralizeFormula guards =, +, @ but leaves numbers and plain text untouched', () => {
+  assert.strictEqual(App.neutralizeFormula('=1+1'), "'=1+1");
+  assert.strictEqual(App.neutralizeFormula('+SUM(A1)'), "'+SUM(A1)");
+  assert.strictEqual(App.neutralizeFormula('@cmd'), "'@cmd");
+  assert.strictEqual(App.neutralizeFormula('ONE Corporate MVP1'), 'ONE Corporate MVP1');
+  assert.strictEqual(App.neutralizeFormula(-5), -5); // a real number is never touched
+  assert.strictEqual(App.neutralizeFormula('-5'), '-5'); // a numeric-looking string starting with "-" is not a trigger char
+});
+
+test('toCSV/toTSV neutralize a formula-injection attempt in a text cell (e.g. a WO Name)', () => {
+  assert.strictEqual(App.toCSV(['WO Name'], [["=cmd|'/c calc'!A1"]]), "WO Name\r\n'=cmd|'/c calc'!A1");
+  assert.strictEqual(App.toTSV(['WO Name'], [['+SUM(A1:A9)']]), "WO Name\n'+SUM(A1:A9)");
+});
+
+test('toCSV/toTSV do NOT mangle a legitimate negative Man-Day number (regression guard)', () => {
+  assert.strictEqual(App.toCSV(['Total'], [[-12.5]]), 'Total\r\n-12.5');
+  assert.strictEqual(App.toTSV(['Total'], [[-12.5]]), 'Total\n-12.5');
 });
 
 test('toTSV neutralizes embedded tabs so pasted columns cannot shift', () => {

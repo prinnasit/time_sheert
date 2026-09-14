@@ -25,6 +25,11 @@ function parseMappingText(text) {
   const lines = String(text == null ? '' : text).split(/\r\n|\r|\n/);
   const map = {};
   const skippedLines = [];
+  // A WO No. listed more than once silently overwrites — later rows win.
+  // That's sometimes intentional (a corrected re-paste) but often a
+  // copy-paste mistake, so the duplicate is reported rather than hidden.
+  const seenCategory = {};
+  const duplicateWOs = [];
   lines.forEach((line, i) => {
     if (!line.trim()) return;
     const cells = line.split('\t').map(c => c.trim());
@@ -32,9 +37,13 @@ function parseMappingText(text) {
     const category = normalizeCategory(cells[1]);
     const key = normalizeWO(cells[0]);
     if (!category || !key) { skippedLines.push(i + 1); return; }
+    if (Object.prototype.hasOwnProperty.call(seenCategory, key)) {
+      duplicateWOs.push(cells[0]);
+    }
+    seenCategory[key] = category;
     map[key] = { wo: cells[0], category: category, name: cells[2] || '' };
   });
-  return { map: map, skippedLines: skippedLines };
+  return { map: map, skippedLines: skippedLines, duplicateWOs: duplicateWOs };
 }
 
 function rowsFromPastedText(text) {
@@ -179,8 +188,24 @@ function formatPct(p) {
   return p == null ? '–' : (Math.round(p * 10000) / 100).toFixed(2) + '%';
 }
 
+// CSV/formula-injection guard: a text cell (Squad name, WO Name, a typed
+// Remaining value, ...) that starts with =, +, or @ gets interpreted as a
+// formula the moment Excel/Sheets opens the file or receives the paste —
+// the classic "CSV injection" issue. Only applies to actual strings — a
+// genuine negative number (typeof 'number') is never touched, so this
+// can't corrupt legitimate negative MH/Remaining values into text. `-` is
+// deliberately excluded from the trigger set for the same reason (it's a
+// normal leading character for real numbers here). A leading apostrophe
+// is the standard, widely-used mitigation: both Excel's CSV import and
+// its paste-from-clipboard treat a leading `'` as "force text" and strip
+// it from the displayed value, so this is invisible for legitimate data.
+function neutralizeFormula(v) {
+  if (typeof v !== 'string') return v;
+  return /^[=+@]/.test(v) ? "'" + v : v;
+}
+
 function csvEscape(v) {
-  const s = v == null ? '' : String(v);
+  const s = v == null ? '' : String(neutralizeFormula(v));
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
@@ -191,7 +216,7 @@ function toCSV(header, rows) {
 }
 
 function tsvEscape(v) {
-  const s = v == null ? '' : String(v);
+  const s = v == null ? '' : String(neutralizeFormula(v));
   return s.replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
 }
 
@@ -236,7 +261,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
-    formatMH, formatPct, toCSV, toTSV, table1ToRows, table2ToRows
+    formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows
   };
 }
 </script>
@@ -891,6 +916,17 @@ if (typeof module !== 'undefined' && module.exports) {
     reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target.result);
+        // A real .xlsx is a zip archive, so it always starts with the zip
+        // local-file-header magic bytes "PK". SheetJS doesn't throw on
+        // non-xlsx input (it silently parses it as an empty workbook),
+        // so without this check a wrong/corrupt file and a genuinely
+        // empty spreadsheet both showed the same "Loaded 0 row(s)" — this
+        // catches the former with a specific message instead.
+        const looksLikeXlsx = data.length > 4 && data[0] === 0x50 && data[1] === 0x4B;
+        if (!looksLikeXlsx) {
+          uploadStatus.textContent = 'ไฟล์นี้ดูไม่ใช่ไฟล์ Excel (.xlsx) ที่ถูกต้อง — กรุณาตรวจสอบไฟล์อีกครั้ง';
+          return;
+        }
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 'A3:AJ13', blankrows: false, defval: '' });
@@ -1080,6 +1116,9 @@ if (typeof module !== 'undefined' && module.exports) {
     }
 
     const mapping = parseMappingText(mappingText);
+    if (mapping.duplicateWOs.length > 0) {
+      addBanner('warn', 'พบ WO No. ซ้ำกันในตาราง Mapping (ใช้แถวล่างสุดที่พบ): ' + mapping.duplicateWOs.join(', '));
+    }
     const rowArrays = rowsFromPastedText(timesheetText);
     const parsed = parseDataRows(rowArrays);
 
@@ -1154,7 +1193,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
   function clipCell(tag, text, bg, align, bold, colspan, rowspan) {
     return '<' + tag + (colspan ? ' colspan="' + colspan + '"' : '') + (rowspan ? ' rowspan="' + rowspan + '"' : '') +
-      ' style="' + clipCellStyle(bg, align, bold) + '">' + escapeHtml(text) + '</' + tag + '>';
+      ' style="' + clipCellStyle(bg, align, bold) + '">' + escapeHtml(neutralizeFormula(text)) + '</' + tag + '>';
   }
 
   function buildTable1ClipboardHTML(table1) {
