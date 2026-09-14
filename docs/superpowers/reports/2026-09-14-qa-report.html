@@ -1,0 +1,419 @@
+<title>WO Timesheet QA Report</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ink: #1a2130;
+    --muted: #5b6472;
+    --faint: #8992a1;
+    --paper: #f4f6fb;
+    --surface: #ffffff;
+    --surface-2: #eef1f8;
+    --line: #dde1ea;
+    --accent: #2f6fed;
+    --accent-ink: #1747b0;
+    --accent-tint: #e8eefd;
+    --good: #157347;
+    --good-tint: #e6f4ec;
+    --warn: #9a5b00;
+    --warn-tint: #fbf0dc;
+    --shadow: 0 1px 2px rgba(26,33,48,.04), 0 10px 30px rgba(26,33,48,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e8ebf3;
+      --muted: #a3acbe;
+      --faint: #6d768a;
+      --paper: #12151d;
+      --surface: #191d27;
+      --surface-2: #20242f;
+      --line: #2b3040;
+      --accent: #6f97f5;
+      --accent-ink: #b6c8fb;
+      --accent-tint: #202b47;
+      --good: #4fbf85;
+      --good-tint: #16302345;
+      --warn: #e0ac52;
+      --warn-tint: #3a2c12;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8ebf3;
+    --muted: #a3acbe;
+    --faint: #6d768a;
+    --paper: #12151d;
+    --surface: #191d27;
+    --surface-2: #20242f;
+    --line: #2b3040;
+    --accent: #6f97f5;
+    --accent-ink: #b6c8fb;
+    --accent-tint: #202b47;
+    --good: #4fbf85;
+    --good-tint: #16302345;
+    --warn: #e0ac52;
+    --warn-tint: #3a2c12;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.45);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.55;
+    padding-block: 48px 72px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  header.head { margin-bottom: 36px; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    margin: 0 0 12px;
+    text-wrap: balance;
+  }
+  .lede { color: var(--muted); font-size: 1.02rem; max-width: 62ch; margin: 0 0 16px; }
+  .meta { color: var(--faint); font-size: 0.84rem; margin: 0; }
+  .meta code { font-family: "IBM Plex Mono", monospace; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 40px;
+    box-shadow: var(--shadow);
+  }
+  .stat { background: var(--surface); padding: 18px 14px; text-align: center; }
+  .stat .num {
+    display: block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 1.65rem;
+    font-weight: 600;
+    color: var(--accent-ink);
+  }
+  .stat .label { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+
+  section { margin-bottom: 40px; }
+  h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .section-note { color: var(--muted); font-size: 0.88rem; margin: 10px 0 18px; max-width: 64ch; }
+
+  .filecard {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow);
+  }
+  .filecard summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .filecard summary::-webkit-details-marker { display: none; }
+  .filecard .fname { font-family: "IBM Plex Mono", monospace; font-size: 0.9rem; font-weight: 600; }
+  .filecard .fcount { font-family: "IBM Plex Mono", monospace; font-size: 0.78rem; color: var(--good); background: var(--good-tint); padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .filecard .fdesc { color: var(--muted); font-size: 0.84rem; margin: 6px 0 0; }
+  .test-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .test-list li {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    padding-left: 18px;
+    position: relative;
+    line-height: 1.5;
+  }
+  .test-list li::before { content: "✓"; position: absolute; left: 0; color: var(--good); }
+
+  .bug-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .bug {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--good);
+    border-radius: 8px;
+    padding: 13px 16px;
+    box-shadow: var(--shadow);
+  }
+  .bug-head { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+  .bug-num { font-family: "IBM Plex Mono", monospace; color: var(--faint); font-size: 0.8rem; }
+  .bug-title { font-weight: 600; font-size: 0.95rem; }
+  .bug-badge {
+    margin-left: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.68rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--good);
+    background: var(--good-tint);
+    padding: 2px 8px;
+    border-radius: 999px;
+    flex: none;
+  }
+  .bug-body { color: var(--muted); font-size: 0.87rem; }
+  .bug-body .arrow { color: var(--faint); margin: 0 4px; }
+
+  .qa-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .qa-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+  }
+  .qa-card .qa-count {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    color: var(--accent-ink);
+    background: var(--accent-tint);
+    padding: 2px 8px;
+    border-radius: 999px;
+    display: inline-block;
+    margin-bottom: 8px;
+  }
+  .qa-card h3 { font-size: 0.9rem; margin: 0 0 6px; }
+  .qa-card p { font-size: 0.82rem; color: var(--muted); margin: 0; }
+
+  .open-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .open-item {
+    background: var(--warn-tint);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--warn);
+    border-radius: 8px;
+    padding: 11px 16px;
+    font-size: 0.87rem;
+    color: var(--ink);
+  }
+  .open-item .oi-label { font-family: "IBM Plex Mono", monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--warn); display: block; margin-bottom: 3px; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+    color: var(--faint);
+    font-size: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 560px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .qa-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="head">
+    <p class="eyebrow">QA Report · index.html</p>
+    <h1>WO Timesheet QA Report</h1>
+    <p class="lede">สรุปการทดสอบเครื่องมือ WO Timesheet Summary แบบละเอียด — ครอบคลุมทั้ง logic การจำแนก CAPEX/OPEX/Non&nbsp;Charge, ตารางกรอกข้อมูล, และการ export ไปยัง Excel</p>
+    <p class="meta">ขอบเขต: <code>index.html</code> เท่านั้น (ไม่รวม <code>google-apps-script/</code>) · 14 กันยายน 2026</p>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><span class="num tnum">54</span><span class="label">Automated tests</span></div>
+    <div class="stat"><span class="num tnum">6</span><span class="label">บั๊กที่แก้แล้ว</span></div>
+    <div class="stat"><span class="num tnum">22</span><span class="label">Browser QA checks</span></div>
+    <div class="stat"><span class="num tnum">100%</span><span class="label">ผ่านทั้งหมด</span></div>
+  </section>
+
+  <section>
+    <h2>1. ชุดทดสอบอัตโนมัติ</h2>
+    <p class="section-note">รันด้วย <code class="mono">node tests/all.js</code> — ทดสอบ logic การจำแนกและคำนวณล้วนๆ (ไม่พึ่ง browser) กด ▸ ดูรายชื่อเทสได้</p>
+
+    <details class="filecard">
+      <summary>
+        <span><span class="fname">check-structure.js</span><br><span class="fdesc">ตรวจว่า element id ที่โค้ดพึ่งพาอยู่ครบในหน้าเว็บ</span></span>
+        <span class="fcount tnum">1 test</span>
+      </summary>
+      <ul class="test-list"><li>ครบทั้ง 18 id ที่จำเป็น (grid, ปุ่ม, ช่อง input, container ของตาราง)</li></ul>
+    </details>
+
+    <details class="filecard">
+      <summary>
+        <span><span class="fname">run-tests.js</span><br><span class="fdesc">พฤติกรรมหลักของทุกฟีเจอร์ที่เพิ่มมาตลอด</span></span>
+        <span class="fcount tnum">18 tests</span>
+      </summary>
+      <ul class="test-list">
+        <li>normalizeWO / normalizeCategory (ตัดช่องว่าง, ไม่สนตัวพิมพ์เล็ก-ใหญ่)</li>
+        <li>parseMappingText ข้าม header และแถวว่าง</li>
+        <li>splitPasteBlock กระจายข้อมูลที่วางลงตาราง</li>
+        <li>parseDataRows รวมชั่วโมงรายวัน, ข้ามแถวอ่านไม่ได้</li>
+        <li>classifyRows ติดป้าย UNMAPPED และไม่เดาเป็น CAPEX</li>
+        <li>buildTable1 แปลง MH → Man-Day, sort ตาม WO No., เก็บ woNo แยกจาก label</li>
+        <li>table1ToRows แยก WO No. กับ WO Name เป็นคนละแถว</li>
+        <li>buildTable2 คำนวณ % และคืนค่า null เมื่อไม่มีชั่วโมงที่ chargeable</li>
+        <li>formatMH / formatPct ปัดเศษ 2 ตำแหน่ง</li>
+        <li>toCSV / toTSV escape เครื่องหมายพิเศษถูกต้องตาม RFC 4180</li>
+      </ul>
+    </details>
+
+    <details class="filecard">
+      <summary>
+        <span><span class="fname">edge-cases.js</span><br><span class="fdesc">เคสขอบ — เลขติดลบ, ภาษาไทย, ข้อมูลซ้ำ, ช่องว่าง</span></span>
+        <span class="fcount tnum">30 tests</span>
+      </summary>
+      <ul class="test-list">
+        <li>เลขติดลบ, comma คั่นหลักพัน, ข้อความปนตัวเลข ("8hrs")</li>
+        <li>แถวมีแค่ 5 คอลัมน์ (ไม่มีชั่วโมงเลย) → mh เป็น 0 ไม่ error</li>
+        <li>ชื่อคน/ทีม/งานเป็นภาษาไทยไม่พัง</li>
+        <li>WO No. ซ้ำกันในตาราง Mapping (ทั้งตัวพิมพ์เดียวกันและคนละ case)</li>
+        <li>ข้อมูลว่างเปล่าทั้งหมด → คืน structure ว่าง ไม่ throw</li>
+        <li>รวมชั่วโมงติดลบได้ (กรณีแก้ไขยอดย้อนหลัง)</li>
+        <li>neutralizeFormula กัน =, +, @ แต่ไม่แตะตัวเลขติดลบจริง</li>
+        <li>toCSV/toTSV ป้องกัน formula injection โดยไม่ทำเลข Man-Day ติดลบเพี้ยน</li>
+      </ul>
+    </details>
+
+    <details class="filecard">
+      <summary>
+        <span><span class="fname">e2e.js</span><br><span class="fdesc">ข้อมูลตัวอย่างมาตรฐานไหลผ่าน pipeline เต็มรูปแบบ</span></span>
+        <span class="fcount tnum">5 tests</span>
+      </summary>
+      <ul class="test-list">
+        <li>7 แถว, 4 squad, 1 WO ที่ไม่รู้จัก — parse ผ่านครบ ไม่มีแถวถูกข้าม</li>
+        <li>คอลัมน์เรียงกลุ่ม CAPEX → OPEX → Non Charge → Unmapped ถูกต้อง</li>
+        <li>ยอดรวม Man-Day ต่อ squad และ % CAPEX/OPEX ตรงกับที่คำนวณมือ</li>
+      </ul>
+    </details>
+  </section>
+
+  <section>
+    <h2>2. บั๊กที่พบและแก้ไข</h2>
+    <p class="section-note">ทั้งหมดแก้และยืนยันซ้ำแล้วว่าใช้งานได้จริงผ่าน browser จริง ไม่ใช่แค่เดา</p>
+    <ol class="bug-list">
+      <li class="bug">
+        <div class="bug-head"><span class="bug-num tnum">01</span><span class="bug-title">อัปโหลดไฟล์ .xlsx เดิมซ้ำแล้วไม่มีอะไรเกิดขึ้น</span><span class="bug-badge">Fixed</span></div>
+        <div class="bug-body">ช่องเลือกไฟล์ไม่รีเซ็ตค่าหลังอ่านเสร็จ<span class="arrow">→</span>เลือกไฟล์เดิมซ้ำ browser จึงไม่ยิง event ให้ ตอนนี้รีเซ็ตช่องหลังอ่านทุกครั้ง</div>
+      </li>
+      <li class="bug">
+        <div class="bug-head"><span class="bug-num tnum">02</span><span class="bug-title">ไฟล์ .xlsx เสีย/ถูกเปิดใช้งานอยู่ → ล้มเหลวเงียบๆ</span><span class="bug-badge">Fixed</span></div>
+        <div class="bug-body">ไม่มี error handler ตอนอ่านไฟล์ล้มเหลวระดับระบบ<span class="arrow">→</span>เพิ่มข้อความแจ้งเตือนภาษาไทยเมื่ออ่านไฟล์ไม่สำเร็จ</div>
+      </li>
+      <li class="bug">
+        <div class="bug-head"><span class="bug-num tnum">03</span><span class="bug-title">Download CSV เสี่ยงล้มเหลวบน Firefox</span><span class="bug-badge">Fixed</span></div>
+        <div class="bug-body">ลบ URL ของไฟล์ทิ้งทันทีหลังกดดาวน์โหลด เป็น race condition ที่รู้จักกันดีใน Firefox<span class="arrow">→</span>หน่วงการลบออกไป 1 วินาที</div>
+      </li>
+      <li class="bug">
+        <div class="bug-head"><span class="bug-num tnum">04</span><span class="bug-title">เสี่ยง CSV formula injection</span><span class="bug-badge">Fixed</span></div>
+        <div class="bug-body">ถ้าชื่อ Squad/WO ขึ้นต้นด้วย =, +, @ แล้วเปิดใน Excel อาจถูกตีความเป็นสูตร<span class="arrow">→</span>เติม <code class="mono">'</code> นำหน้าอัตโนมัติ เฉพาะข้อความ ไม่แตะตัวเลขติดลบจริง</div>
+      </li>
+      <li class="bug">
+        <div class="bug-head"><span class="bug-num tnum">05</span><span class="bug-title">WO No. ซ้ำในตาราง Mapping ทับกันเงียบๆ</span><span class="bug-badge">Fixed</span></div>
+        <div class="bug-body">ถ้าพิมพ์ WO เดิมสองแถวคนละ Category แถวหลังจะทับแถวแรกโดยไม่มีใครรู้<span class="arrow">→</span>ขึ้นแบนเนอร์เตือนพร้อมชื่อ WO ที่ซ้ำ</div>
+      </li>
+      <li class="bug">
+        <div class="bug-head"><span class="bug-num tnum">06</span><span class="bug-title">อัปโหลดไฟล์ที่ไม่ใช่ Excel จริง → ข้อความกำกวม</span><span class="bug-badge">Fixed</span></div>
+        <div class="bug-body">ได้ข้อความ "Loaded 0 rows" เหมือนไฟล์ Excel ที่ว่างจริง แยกไม่ออก<span class="arrow">→</span>เช็ค magic byte ของไฟล์ zip (.xlsx คือไฟล์ zip) ก่อน แจ้งชัดเจนว่าไม่ใช่ไฟล์ Excel</div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>3. ทดสอบผ่าน Browser จริง</h2>
+    <p class="section-note">จำลองการใช้งานจริงด้วย headless Chrome ครอบคลุม 22 สถานการณ์ที่ unit test แตะไม่ถึง เพราะเกี่ยวกับ DOM/localStorage/ไฟล์โดยตรง</p>
+    <div class="qa-grid">
+      <div class="qa-card">
+        <span class="qa-count tnum">2 checks</span>
+        <h3>สถานะว่างเปล่า</h3>
+        <p>ไม่กรอกอะไรเลยแล้วกด Run / กรอกแค่ Mapping ไม่กรอก Timesheet → ขึ้น error ที่อ่านเข้าใจ ไม่ค้าง ไม่ crash</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">2 checks</span>
+        <h3>ความปลอดภัย (XSS)</h3>
+        <p>พิมพ์ <code class="mono">&lt;img onerror&gt;</code> ในชื่อ Squad/WO → ถูก escape ปลอดภัย ไม่รันโค้ดแปลกปลอมในตาราง</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">1 check</span>
+        <h3>กด Run ซ้ำ</h3>
+        <p>ข้อมูลเดิม กด Run สองครั้งติด → ผลลัพธ์เหมือนเดิมทุกตัวอักษร ไม่มีการบวกค่าซ้ำ</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">2 checks</span>
+        <h3>คีย์บอร์ดในตาราง</h3>
+        <p>กด Tab ที่ช่องสุดท้ายของแถวสุดท้าย → เพิ่มแถวใหม่ให้เอง / ลบแถวรัวๆ → ไม่มีวันเหลือ 0 แถว</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">2 checks</span>
+        <h3>วางข้อมูลกลางตาราง</h3>
+        <p>วางไม่ใช่ที่ช่องแรกสุด → กระจายข้อมูลถูกตำแหน่งเป๊ะ ไม่ไปทับแถวอื่นที่ไม่เกี่ยวข้อง</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">3 checks</span>
+        <h3>สลับ Category ไปมา</h3>
+        <p>เปลี่ยนจาก CAPEX เป็นอื่น → ช่อง Remaining ปิดใช้งานทันที เปลี่ยนกลับมาค่าเดิมยังอยู่ครบ</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">2 checks</span>
+        <h3>ขึ้นเดือนใหม่</h3>
+        <p>กด "ขึ้นเดือนใหม่" ตอนยังไม่เคยตั้งยอดคงเหลือเลย → ไม่ throw error, ยอด 202.88 − 100.88 ได้ 102.00 พอดี</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">1 check</span>
+        <h3>localStorage ใช้ไม่ได้</h3>
+        <p>จำลอง private browsing (setItem throw exception) → หน้าเว็บยังทำงานต่อได้ปกติ ไม่ค้างทั้งหน้า</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">1 check</span>
+        <h3>เลขสุดขั้ว</h3>
+        <p>ชั่วโมงติดลบ (-80) และเลขจำนวนมาก (100,000) ในแถวเดียวกัน → คำนวณผ่าน ไม่ขึ้น error ที่ไม่ควรขึ้น</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">2 checks</span>
+        <h3>ไฟล์ .xlsx ไม่ถูกต้อง</h3>
+        <p>ไฟล์ปลอม/ไฟล์เสีย → ข้อความแจ้งเตือนชัดเจน ไม่ใช่ stack trace ดิบๆ</p>
+      </div>
+      <div class="qa-card">
+        <span class="qa-count tnum">5 checks</span>
+        <h3>เนื้อหาไฟล์ CSV</h3>
+        <p>ตรวจ BOM, หัวตาราง WO No./Name, ยอด Man-Day, และ MIME type ของไฟล์ที่ดาวน์โหลดจริง ครบถูกต้อง</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. ข้อสังเกตที่ยังไม่ได้แก้</h2>
+    <p class="section-note">ไม่ใช่บั๊ก แค่ข้อจำกัดเล็กๆ ที่รู้ไว้ก็พอ ยังไม่คุ้มที่จะแก้ตอนนี้</p>
+    <ul class="open-list">
+      <li class="open-item"><span class="oi-label">Performance</span>ยังไม่ได้ทดสอบกับข้อมูลระดับ 100+ แถว — เครื่องมือนี้ออกแบบไว้สำหรับทีมขนาดเล็ก-กลาง</li>
+      <li class="open-item"><span class="oi-label">Data hygiene</span>ถ้าเปลี่ยน WO จาก CAPEX เป็นหมวดอื่น ค่า "Remaining" เดิมของมันจะยังค้างอยู่ใน localStorage เงียบๆ (ไม่กระทบการคำนวณ)</li>
+      <li class="open-item"><span class="oi-label">Unmapped list</span>WO ที่ไม่รู้จักตัวเดียวกันแต่พิมพ์ตัวพิมพ์เล็ก-ใหญ่ต่างกัน จะโชว์ซ้ำ 2 ครั้งในแบนเนอร์เตือน (ตัวเลขในตารางยังถูกต้อง รวมเข้าคอลัมน์เดียวกัน)</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>WO Timesheet Summary · <code class="mono">index.html</code></span>
+    <span>commit <code class="mono">09a786b</code> เป็นต้นไป</span>
+  </footer>
+
+</div>
