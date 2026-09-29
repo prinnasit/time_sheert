@@ -472,6 +472,7 @@ if (typeof module !== 'undefined' && module.exports) {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
   }
   tr.remaining-row-computed td.remaining-computed { color: var(--text-muted); font-weight: 600; }
+  td.pct-alert { background: var(--error-bg); color: var(--error-text); font-weight: 700; }
 </style>
 
 <header class="page-head">
@@ -562,6 +563,10 @@ if (typeof module !== 'undefined' && module.exports) {
   const REMAINING_STORAGE_KEY = 'woTimesheetSummary.remaining';
   const REMAINING_LAST_LABEL = 'Remaining (เดือนที่แล้ว)';
   const REMAINING_THIS_LABEL = 'Remaining (เดือนนี้)';
+  // Table 2: flag a squad whose OPEX share is unusually high — CAPEX work
+  // is what's normally expected to dominate, so a squad running mostly
+  // OPEX is worth a second look.
+  const OPEX_PCT_ALERT_THRESHOLD = 0.8;
 
   let lastTable1Rows = null;
   let lastTable2Rows = null;
@@ -1087,8 +1092,10 @@ if (typeof module !== 'undefined' && module.exports) {
   function renderTable2(table2) {
     let html = '<table><thead><tr><th>Squad</th><th>CAPEX MH</th><th>OPEX MH</th><th>CAPEX %</th><th>OPEX %</th></tr></thead><tbody>';
     table2.forEach(r => {
+      const opexHigh = r.opexPct != null && r.opexPct > OPEX_PCT_ALERT_THRESHOLD;
       html += '<tr><td>' + escapeHtml(r.sq) + '</td><td>' + formatMH(r.capexMH) + '</td><td>' + formatMH(r.opexMH) +
-        '</td><td>' + formatPct(r.capexPct) + '</td><td>' + formatPct(r.opexPct) + '</td></tr>';
+        '</td><td>' + formatPct(r.capexPct) + '</td><td' + (opexHigh ? ' class="pct-alert"' : '') + '>' +
+        formatPct(r.opexPct) + '</td></tr>';
     });
     html += '</tbody></table>';
     table2Container.innerHTML = html;
@@ -1184,6 +1191,9 @@ if (typeof module !== 'undefined' && module.exports) {
   // shade for the carried-in baseline, blue for the computed balance).
   const REMAINING_LAST_BG = '#fbe0cf';
   const REMAINING_THIS_BG = '#d6e4f7';
+  // Table 2's OPEX % alert — same red used for the on-screen .pct-alert
+  // class (--error-bg's light-theme value), so Copy matches what's shown.
+  const PCT_ALERT_BG = '#fdecec';
 
   function categoryBg(cat) { return CATEGORY_BG[cat] || '#ffffff'; }
 
@@ -1265,12 +1275,13 @@ if (typeof module !== 'undefined' && module.exports) {
       clipCell('td', 'OPEX %', categoryBg('OPEX'), 'right', true) +
       '</tr>';
     table2.forEach(r => {
+      const opexHigh = r.opexPct != null && r.opexPct > OPEX_PCT_ALERT_THRESHOLD;
       html += '<tr>' +
         clipCell('td', r.sq, '#ffffff', 'left', false) +
         clipCell('td', formatMH(r.capexMH), categoryBg('CAPEX'), 'right', false) +
         clipCell('td', formatMH(r.opexMH), categoryBg('OPEX'), 'right', false) +
         clipCell('td', formatPct(r.capexPct), categoryBg('CAPEX'), 'right', false) +
-        clipCell('td', formatPct(r.opexPct), categoryBg('OPEX'), 'right', false) +
+        clipCell('td', formatPct(r.opexPct), opexHigh ? PCT_ALERT_BG : categoryBg('OPEX'), 'right', opexHigh) +
         '</tr>';
     });
     html += '</table>';
