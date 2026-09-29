@@ -182,8 +182,8 @@ test('table1ToRows and table2ToRows produce full-precision numeric rows plus tot
 
   const table2 = App.buildTable2(classified);
   const t2rows = App.table2ToRows(table2);
-  assert.deepStrictEqual(t2rows.header, ['Squad', 'CAPEX MH', 'OPEX MH', 'CAPEX %', 'OPEX %']);
-  assert.strictEqual(t2rows.rows[0][3], 1 / 3);
+  assert.deepStrictEqual(t2rows.header, ['Squad', 'CAPEX %', 'OPEX %']);
+  assert.strictEqual(t2rows.rows[0][1], 1 / 3);
 });
 
 process.on('exit', () => {

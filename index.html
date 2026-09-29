@@ -245,11 +245,12 @@ function table1ToRows(table1) {
 }
 
 function table2ToRows(table2) {
-  const header = ['Squad', 'CAPEX MH', 'OPEX MH', 'CAPEX %', 'OPEX %'];
+  // MH totals aren't shown here — Table 2 is the %-only summary. The
+  // underlying MH values still drive the percentage math in buildTable2();
+  // they're just not part of this table's output.
+  const header = ['Squad', 'CAPEX %', 'OPEX %'];
   const rows = table2.map(r => [
     r.sq,
-    r.capexMH,
-    r.opexMH,
     r.capexPct == null ? '' : r.capexPct,
     r.opexPct == null ? '' : r.opexPct
   ]);
@@ -1090,12 +1091,11 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   function renderTable2(table2) {
-    let html = '<table><thead><tr><th>Squad</th><th>CAPEX MH</th><th>OPEX MH</th><th>CAPEX %</th><th>OPEX %</th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>Squad</th><th>CAPEX %</th><th>OPEX %</th></tr></thead><tbody>';
     table2.forEach(r => {
       const opexHigh = r.opexPct != null && r.opexPct > OPEX_PCT_ALERT_THRESHOLD;
-      html += '<tr><td>' + escapeHtml(r.sq) + '</td><td>' + formatMH(r.capexMH) + '</td><td>' + formatMH(r.opexMH) +
-        '</td><td>' + formatPct(r.capexPct) + '</td><td' + (opexHigh ? ' class="pct-alert"' : '') + '>' +
-        formatPct(r.opexPct) + '</td></tr>';
+      html += '<tr><td>' + escapeHtml(r.sq) + '</td><td>' + formatPct(r.capexPct) + '</td><td' +
+        (opexHigh ? ' class="pct-alert"' : '') + '>' + formatPct(r.opexPct) + '</td></tr>';
     });
     html += '</tbody></table>';
     table2Container.innerHTML = html;
@@ -1269,8 +1269,6 @@ if (typeof module !== 'undefined' && module.exports) {
     let html = '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">';
     html += '<tr>' +
       clipCell('td', 'Squad', GRID_HEADER_BG, 'left', true) +
-      clipCell('td', 'CAPEX MH', categoryBg('CAPEX'), 'right', true) +
-      clipCell('td', 'OPEX MH', categoryBg('OPEX'), 'right', true) +
       clipCell('td', 'CAPEX %', categoryBg('CAPEX'), 'right', true) +
       clipCell('td', 'OPEX %', categoryBg('OPEX'), 'right', true) +
       '</tr>';
@@ -1278,8 +1276,6 @@ if (typeof module !== 'undefined' && module.exports) {
       const opexHigh = r.opexPct != null && r.opexPct > OPEX_PCT_ALERT_THRESHOLD;
       html += '<tr>' +
         clipCell('td', r.sq, '#ffffff', 'left', false) +
-        clipCell('td', formatMH(r.capexMH), categoryBg('CAPEX'), 'right', false) +
-        clipCell('td', formatMH(r.opexMH), categoryBg('OPEX'), 'right', false) +
         clipCell('td', formatPct(r.capexPct), categoryBg('CAPEX'), 'right', false) +
         clipCell('td', formatPct(r.opexPct), opexHigh ? PCT_ALERT_BG : categoryBg('OPEX'), 'right', opexHigh) +
         '</tr>';

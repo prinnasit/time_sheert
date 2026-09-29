@@ -225,8 +225,11 @@ test('table1ToRows/table2ToRows produce a well-formed export even when every row
   const t1rows = App.table1ToRows(table1);
   const t2rows = App.table2ToRows(table2);
   assert.strictEqual(t1rows.header[1], 'X1');
-  assert.strictEqual(t2rows.rows[0][1], 0); // capexMH — UNMAPPED never counts as CAPEX
-  assert.strictEqual(t2rows.rows[0][3], ''); // null capexPct exported as empty string
+  assert.deepStrictEqual(t2rows.header, ['Squad', 'CAPEX %', 'OPEX %']);
+  // UNMAPPED MH counts toward neither CAPEX nor OPEX, so there's nothing
+  // chargeable for this squad — both percentages export as empty (null).
+  assert.strictEqual(t2rows.rows[0][1], '');
+  assert.strictEqual(t2rows.rows[0][2], '');
 });
 
 process.on('exit', () => {
