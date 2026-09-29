@@ -108,16 +108,26 @@ test('buildTable1 carries each column\'s raw WO No. through as col.woNo', () => 
   assert.strictEqual(table.columns[0].label, 'ONE Corporate MVP1');
 });
 
-test('buildTable1 sorts columns by WO No. (numeric-aware) within each category', () => {
+test('buildTable1 sorts columns by WO No. ascending (zero-padded numbers happen to sort the same both ways)', () => {
   const classified = [
     { sq: 'SQ1', woKey: 'CAPEX-010', woLabel: 'Ten', woNo: 'CAPEX-010', category: 'CAPEX', mh: 8 },
     { sq: 'SQ1', woKey: 'CAPEX-002', woLabel: 'Two', woNo: 'CAPEX-002', category: 'CAPEX', mh: 8 },
     { sq: 'SQ1', woKey: 'CAPEX-001', woLabel: 'One', woNo: 'CAPEX-001', category: 'CAPEX', mh: 8 }
   ];
   const table = App.buildTable1(classified);
-  // Numeric-aware: CAPEX-002 sorts before CAPEX-010 (not lexically, where
-  // "10" < "2"), and CAPEX-001 sorts first of all.
   assert.deepStrictEqual(table.columns.map(c => c.woNo), ['CAPEX-001', 'CAPEX-002', 'CAPEX-010']);
+});
+
+test('buildTable1 sorts as plain ascending text, matching =SORT(TRANSPOSE(UNIQUE(range)),1,1,TRUE) — not numeric-aware', () => {
+  const classified = [
+    { sq: 'SQ1', woKey: 'WO-10', woLabel: 'Ten', woNo: 'WO-10', category: 'CAPEX', mh: 8 },
+    { sq: 'SQ1', woKey: 'WO-2', woLabel: 'Two', woNo: 'WO-2', category: 'CAPEX', mh: 8 }
+  ];
+  const table = App.buildTable1(classified);
+  // Plain text sort: "WO-10" < "WO-2" (the character '1' sorts before '2'),
+  // same as Excel/Sheets' SORT on unpadded numbers — deliberately NOT
+  // "WO-2" then "WO-10", which a numeric-aware sort would produce.
+  assert.deepStrictEqual(table.columns.map(c => c.woNo), ['WO-10', 'WO-2']);
 });
 
 test('table1ToRows puts WO No. in the header row and WO Name in a separate first row', () => {

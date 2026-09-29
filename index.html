@@ -121,8 +121,13 @@ function buildTable1(classifiedRows) {
   });
 
   // Columns stay grouped by category (needed for the colspan header band),
-  // but within each group they're sorted by WO No. — numeric-aware so
-  // "WO-2" sorts before "WO-10" rather than after it.
+  // but within each group they're sorted by WO No. — plain ascending text
+  // sort on the normalized (uppercased) key, the same result you'd get
+  // from =SORT(TRANSPOSE(UNIQUE(range)), 1, 1, TRUE) in Sheets/Excel:
+  // unique values, sorted ascending, laid out left to right. Deliberately
+  // NOT "numeric-aware" — "WO-10" sorts before "WO-2" here, exactly as it
+  // would in that formula, since spreadsheet SORT compares WO No. as
+  // plain text.
   const columns = [];
   CATEGORY_ORDER.forEach(cat => {
     const seen = {};
@@ -132,7 +137,7 @@ function buildTable1(classifiedRows) {
       seen[row.woKey] = true;
       catColumns.push({ key: row.woKey, label: row.woLabel, woNo: row.woNo, category: cat });
     });
-    catColumns.sort((a, b) => a.woNo.localeCompare(b.woNo, undefined, { numeric: true, sensitivity: 'base' }));
+    catColumns.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     columns.push(...catColumns);
   });
 
