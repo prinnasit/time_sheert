@@ -898,6 +898,8 @@ if (typeof module !== 'undefined' && module.exports) {
   }
   tr.remaining-row-computed td.remaining-computed { color: var(--text-muted); font-weight: 600; }
   td.pct-alert { background: var(--error-bg); color: var(--error-text); font-weight: 700; }
+  [hidden] { display: none !important; }
+  #working-days-input { width: 72px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; }
 </style>
 
 <header class="page-head">
@@ -927,6 +929,27 @@ if (typeof module !== 'undefined' && module.exports) {
     <label class="btn">Upload .xlsx<input type="file" id="xlsx-upload" accept=".xlsx" hidden></label>
     <span id="upload-status" class="status-text"></span>
   </div>
+</section>
+
+<section class="card">
+  <div class="card-head"><span class="step-badge">3</span><h2>Role Ceilings</h2></div>
+  <p class="card-desc">เพดาน Man-Day ต่อคนต่อเดือนของแต่ละตำแหน่ง (Z01-Z03 / CAPEX / OPEX) — ใช้เลือกว่าจะแก้ Timesheet ของใครเมื่อ squad มี OPEX เกิน 80% แก้ไขได้และระบบจำให้ เพดานจริง = ค่าในตาราง × วันทำงาน ÷ 20</p>
+  <div id="role-ceilings-grid"></div>
+  <button id="role-ceilings-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+  <div class="row">
+    <button id="role-ceilings-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+    <label class="status-text" for="working-days-input">วันทำงานเดือนนี้:</label>
+    <input id="working-days-input" type="number" min="1" max="31" step="1">
+    <span id="working-days-hint" class="status-text"></span>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head"><span class="step-badge">4</span><h2>People &rarr; Role</h2></div>
+  <p class="card-desc">ใส่ชื่อ (ตรงกับ Name-Surname ใน Timesheet) และตำแหน่งของแต่ละคน — วางจาก Excel ได้ ระบบจำให้ เดือนถัดไปไม่ต้องกรอกใหม่ คนที่ยังไม่มีตำแหน่งจะไม่ถูกเลือกมาแก้</p>
+  <div id="people-roles-grid"></div>
+  <button id="people-roles-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+  <datalist id="role-options"></datalist>
 </section>
 
 <div class="run-row">
@@ -983,6 +1006,14 @@ if (typeof module !== 'undefined' && module.exports) {
   const timesheetAddRowBtn = document.getElementById('timesheet-add-row-btn');
   const newMonthBtn = document.getElementById('new-month-btn');
   const newMonthStatus = document.getElementById('new-month-status');
+  const roleCeilingsMount = document.getElementById('role-ceilings-grid');
+  const roleCeilingsAddRowBtn = document.getElementById('role-ceilings-add-row-btn');
+  const roleCeilingsResetBtn = document.getElementById('role-ceilings-reset-btn');
+  const workingDaysInput = document.getElementById('working-days-input');
+  const workingDaysHint = document.getElementById('working-days-hint');
+  const peopleRolesMount = document.getElementById('people-roles-grid');
+  const peopleRolesAddRowBtn = document.getElementById('people-roles-add-row-btn');
+  const roleOptions = document.getElementById('role-options');
 
   const MAPPING_STORAGE_KEY = 'woTimesheetSummary.mappingText';
   const REMAINING_STORAGE_KEY = 'woTimesheetSummary.remaining';
@@ -1111,6 +1142,7 @@ if (typeof module !== 'undefined' && module.exports) {
         if (col.numeric) { el.className = 'numeric'; el.inputMode = 'decimal'; }
       }
       if (col.cellClass) el.classList.add(col.cellClass);
+      if (col.datalistId) el.setAttribute('list', col.datalistId);
       el.value = (values && values[i]) || '';
       td.appendChild(el);
       tr.appendChild(td);
@@ -1319,6 +1351,71 @@ if (typeof module !== 'undefined' && module.exports) {
     timesheetInput.dispatchEvent(new Event('input', { bubbles: true }));
   }, true);
 
+  const ROLE_CEILINGS_STORAGE_KEY = 'woTimesheetSummary.roleCeilings';
+  const PEOPLE_ROLES_STORAGE_KEY = 'woTimesheetSummary.peopleRoles';
+  const ROLE_CEILING_COLUMNS = [
+    { label: 'Role', type: 'text', width: '240px' },
+    { label: 'Z01-Z03 (MD)', type: 'text', width: '110px', numeric: true },
+    { label: 'CAPEX (MD)', type: 'text', width: '110px', numeric: true },
+    { label: 'OPEX (MD)', type: 'text', width: '110px', numeric: true }
+  ];
+  const PEOPLE_ROLE_COLUMNS = [
+    { label: 'Name-Surname', type: 'text', width: '240px' },
+    { label: 'Role', type: 'text', width: '240px', datalistId: 'role-options' }
+  ];
+
+  function loadSavedRows(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) { const v = JSON.parse(raw); if (Array.isArray(v)) return v; }
+    } catch (e) { /* localStorage unavailable or corrupt, use defaults */ }
+    return null;
+  }
+  function saveRows(key, rows) {
+    try { localStorage.setItem(key, JSON.stringify(rows)); } catch (e) { /* ignore */ }
+  }
+  function refreshRoleOptions() {
+    roleOptions.innerHTML = '';
+    roleCeilingsGrid.getRows().forEach(r => {
+      const role = String(r[0] || '').trim();
+      if (!role) return;
+      const o = document.createElement('option');
+      o.value = role;
+      roleOptions.appendChild(o);
+    });
+  }
+
+  const roleCeilingsGrid = createGridEditor(roleCeilingsMount, ROLE_CEILING_COLUMNS, roleCeilingsAddRowBtn, 1, () => {
+    saveRows(ROLE_CEILINGS_STORAGE_KEY, roleCeilingsGrid.getRows());
+    refreshRoleOptions();
+  });
+  roleCeilingsGrid.setRows(loadSavedRows(ROLE_CEILINGS_STORAGE_KEY) || DEFAULT_ROLE_CEILINGS.map(r => r.slice()));
+  refreshRoleOptions();
+  roleCeilingsResetBtn.addEventListener('click', () => {
+    roleCeilingsGrid.setRows(DEFAULT_ROLE_CEILINGS.map(r => r.slice()));
+    saveRows(ROLE_CEILINGS_STORAGE_KEY, roleCeilingsGrid.getRows());
+    refreshRoleOptions();
+  });
+
+  const peopleRolesGrid = createGridEditor(peopleRolesMount, PEOPLE_ROLE_COLUMNS, peopleRolesAddRowBtn, 3, () => {
+    saveRows(PEOPLE_ROLES_STORAGE_KEY, peopleRolesGrid.getRows());
+  });
+  peopleRolesGrid.setRows(loadSavedRows(PEOPLE_ROLES_STORAGE_KEY) || []);
+
+  // Working days this month: auto-counted (Mon-Fri) from the month of an
+  // uploaded sheet, otherwise from the current month; the user can overwrite
+  // it (e.g. to remove public holidays).
+  function setWorkingDaysFromMonth(ym, sourceLabel) {
+    workingDaysInput.value = String(countWorkingDays(ym.year, ym.month));
+    workingDaysHint.textContent = 'นับวันจันทร์–ศุกร์ของ ' + (ym.month + 1) + '/' + ym.year + ' (' + sourceLabel + ') — แก้ได้ถ้ามีวันหยุดนักขัตฤกษ์';
+  }
+  function workingDaysValue() {
+    const n = Number(workingDaysInput.value);
+    return n > 0 ? n : null;
+  }
+  workingDaysInput.addEventListener('input', () => { workingDaysHint.textContent = 'แก้เอง'; });
+  (function () { const now = new Date(); setWorkingDaysFromMonth({ year: now.getFullYear(), month: now.getMonth() }, 'เดือนปัจจุบัน'); })();
+
   try {
     const saved = localStorage.getItem(MAPPING_STORAGE_KEY);
     if (saved) mappingInput.value = saved;
@@ -1359,7 +1456,12 @@ if (typeof module !== 'undefined' && module.exports) {
         }
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 'A3:AJ13', blankrows: false, defval: '' });
+        // Read from row 3 until the first row with neither Name nor WO No.
+        // (the template leaves a gap before its summary tables).
+        const rows = takeTimesheetRows(XLSX.utils.sheet_to_json(sheet, { header: 1, range: 2, blankrows: true, defval: '' }));
+        const f2 = sheet['F2'];
+        const ym = monthFromSheetValue(f2 ? f2.v : null);
+        if (ym) setWorkingDaysFromMonth(ym, 'จากไฟล์ที่อัปโหลด');
         const header = 'Name-Surname\tSQ\tWO No.\tWO Name\tFTE/OS\t' +
           Array.from({ length: 31 }, (_, i) => 'Day' + (i + 1)).join('\t');
         const lines = [header].concat(rows.map(r => r.map(v => (v == null ? '' : v)).join('\t')));

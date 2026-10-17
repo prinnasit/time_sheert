@@ -19,3 +19,13 @@ if (missing.length > 0) {
 } else {
   console.log('ok - all required element ids present');
 }
+
+// Both <script> blocks must at least parse (a typo in the IIFE would
+// otherwise only show up in a browser).
+const scriptBlocks = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g) || [];
+let syntaxOk = true;
+scriptBlocks.forEach((block, i) => {
+  const code = block.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '');
+  try { new Function(code); } catch (e) { syntaxOk = false; console.log('FAIL - script block ' + (i + 1) + ' has a syntax error: ' + e.message); process.exitCode = 1; }
+});
+if (syntaxOk) console.log('ok - all inline script blocks parse');
