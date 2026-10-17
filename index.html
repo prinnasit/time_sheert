@@ -249,17 +249,145 @@ function table1ToRows(table1) {
   return { header, rows };
 }
 
-function table2ToRows(table2) {
+function table2ToRows(table2, beforeTable2) {
   // MH totals aren't shown here — Table 2 is the %-only summary. The
   // underlying MH values still drive the percentage math in buildTable2();
-  // they're just not part of this table's output.
+  // they're just not part of this table's output. With a `beforeTable2`
+  // (a rebalance has been applied) one extra column carries each squad's
+  // original OPEX %.
   const header = ['Squad', 'CAPEX %', 'OPEX %'];
-  const rows = table2.map(r => [
-    r.sq,
-    r.capexPct == null ? '' : r.capexPct,
-    r.opexPct == null ? '' : r.opexPct
-  ]);
+  const beforeBySq = {};
+  if (beforeTable2) {
+    header.push('OPEX % (เดิม)');
+    beforeTable2.forEach(r => { beforeBySq[r.sq] = r.opexPct; });
+  }
+  const rows = table2.map(r => {
+    const row = [r.sq, r.capexPct == null ? '' : r.capexPct, r.opexPct == null ? '' : r.opexPct];
+    if (beforeTable2) {
+      const b = beforeBySq[r.sq];
+      row.push(b == null ? '' : b);
+    }
+    return row;
+  });
   return { header, rows };
+}
+
+// ---------------------------------------------------------------------
+// OPEX rebalance helpers: role ceilings, working days, xlsx/export bits
+// ---------------------------------------------------------------------
+
+const OPEX_THRESHOLD = 0.8;
+const BASE_MONTH_MD = 20;
+
+// [Role, Z01-Z03, CAPEX, OPEX] — Man-Day ceiling per person per month.
+const DEFAULT_ROLE_CEILINGS = [
+  ['Automated Tester', '3', '14', '3'],
+  ['Cloud Engineer', '1', '11', '8'],
+  ['Cloud Engineer Lead', '2', '10', '8'],
+  ['Developer', '2', '16', '2'],
+  ['DevOps Engineer', '1', '11', '8'],
+  ['Engineering Manager', '6', '10', '4'],
+  ['Engineering Team Leader', '5', '11', '4'],
+  ['Incident Management Engineer', '1', '0', '19'],
+  ['Product Owner', '5', '5', '10'],
+  ['Project Manager', '5', '10', '5'],
+  ['Quality Assurance Lead', '8', '9.6', '2.4'],
+  ['Release Manager', '1', '7', '12'],
+  ['Software Quality Assurance', '2', '13', '5'],
+  ['Solution Architect', '4', '4', '12'],
+  ['System Analyst', '4', '14', '2'],
+  ['System Analyst Manager', '4', '8', '8']
+];
+
+const TIMESHEET_HEADER = ['Name-Surname', 'SQ', 'WO No.', 'WO Name', 'FTE/OS']
+  .concat(Array.from({ length: 31 }, (_, i) => 'Day' + (i + 1)));
+
+function normalizeKey(s) {
+  return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function parseRoleCeilings(rowArrays) {
+  const map = {};
+  const skipped = [];
+  rowArrays.forEach((r, i) => {
+    const role = String((r && r[0]) == null ? '' : r[0]).trim();
+    if (!role) { skipped.push(i + 1); return; }
+    const z = parseNum(r[1]), c = parseNum(r[2]), o = parseNum(r[3]);
+    if (!z.ok || !c.ok || !o.ok || z.value < 0 || c.value < 0 || o.value < 0) { skipped.push(i + 1); return; }
+    map[normalizeKey(role)] = { role: role, z: z.value, capex: c.value, opex: o.value };
+  });
+  return { map: map, skipped: skipped };
+}
+
+function parsePeopleRoles(rowArrays) {
+  const map = {};
+  rowArrays.forEach(r => {
+    const name = normalizeKey(r && r[0]);
+    const role = String((r && r[1]) == null ? '' : r[1]).trim();
+    if (name && role) map[name] = role;
+  });
+  return map;
+}
+
+function countWorkingDays(year, monthIndex) {
+  const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  let n = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(Date.UTC(year, monthIndex, d)).getUTCDay();
+    if (dow !== 0 && dow !== 6) n++;
+  }
+  return n;
+}
+
+// Which month a sheet header cell (the template's F2 = Day1 date) refers to.
+// Excel stores dates as serial numbers; converting the serial by hand
+// (instead of asking SheetJS for Date objects) avoids timezone drift.
+function monthFromSheetValue(v) {
+  if (v instanceof Date) {
+    return isNaN(v) ? null : { year: v.getFullYear(), month: v.getMonth() };
+  }
+  if (typeof v === 'number') {
+    if (!(v >= 20000 && v < 80000)) return null;
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
+    return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
+  }
+  if (typeof v === 'string') {
+    const m = /^(\d{4})-(\d{2})/.exec(v.trim());
+    if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) return { year: Number(m[1]), month: Number(m[2]) - 1 };
+  }
+  return null;
+}
+
+// Rows read from the uploaded sheet starting at row 3: keep going until the
+// first row with neither a Name nor a WO No. (the template leaves a gap
+// before its summary tables), and keep only columns A..AJ (36 columns).
+function takeTimesheetRows(rows) {
+  const out = [];
+  for (const r of rows) {
+    const name = String((r && r[0]) == null ? '' : r[0]).trim();
+    const wo = String((r && r[2]) == null ? '' : r[2]).trim();
+    if (!name && !wo) break;
+    out.push(r.slice(0, 36));
+  }
+  return out;
+}
+
+// Rows for a downloadable .xlsx that can be re-uploaded: row 1 blank, row 2
+// the header (so data starts at row 3 like the template), day cells numeric.
+function timesheetToAoa(rows) {
+  const body = rows.map(r => r.map((c, i) => {
+    if (c == null) return '';
+    if (i < 5) return c;
+    if (String(c).trim() === '') return '';
+    const p = parseNum(c);
+    return p.ok ? p.value : c;
+  }));
+  return [[], TIMESHEET_HEADER].concat(body);
+}
+
+function diffCell(before, after) {
+  const b = formatMH(before), a = formatMH(after);
+  return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -267,7 +395,10 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
-    formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows
+    formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
+    OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, TIMESHEET_HEADER, normalizeKey,
+    parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
+    takeTimesheetRows, timesheetToAoa, diffCell
   };
 }
 </script>

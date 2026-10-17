@@ -3,7 +3,7 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 
-const files = ['check-structure.js', 'run-tests.js', 'edge-cases.js', 'e2e.js'];
+const files = ['check-structure.js', 'run-tests.js', 'edge-cases.js', 'e2e.js', 'rebalance.js'];
 
 let anyFailed = false;
 files.forEach(file => {
