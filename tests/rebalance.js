@@ -301,6 +301,65 @@ test('summarizeRows runs parse → classify → Table 1/2 on grid rows', () => {
   assert.strictEqual(s.table1.grandTotal, 2);
 });
 
+// ---- review-follow-up tests ------------------------------------------------
+
+test('fractional cells: unit = min(1, cell), daily totals unchanged, no negative cell', () => {
+  // C1: day1 = 8 (8 MH). O1: days 3-10 = 8 each (64) + day 11 = 0.5 + day 12 = 0.25 -> O = 64.75, T = 72.75.
+  // Needs O <= 58.2 -> move >= 6.55 MH. Latest day first: 0.25 (day 12), 0.5 (day 11), then 1 MH from day 10 x6 = 6.75 total.
+  const rows = [row('Dev1', 'S1', 'C1', { 1: 8 }), row('Dev1', 'S1', 'O1', days(3, 10, 8, { 11: 0.5, 12: 0.25 }))];
+  const plan = App.planRebalance(ctxFor(rows, [DEV('Dev1')]));
+  assert.deepStrictEqual(plan.moves.map(m => m.mh), [0.25, 0.5, 1, 1, 1, 1, 1, 1]);
+  assert.deepStrictEqual(plan.moves.map(m => m.day), [12, 11, 10, 10, 10, 10, 10, 10]);
+  assert.strictEqual(plan.squads[0].status, 'fixed');
+  const after = App.applyMoves(rows, plan.moves);
+  assert.deepStrictEqual(dayTotals(after), dayTotals(rows));
+  after.forEach(r => { for (let d = 0; d < 31; d++) assert.ok((Number(r[5 + d]) || 0) >= 0, 'negative cell'); });
+});
+
+test('Remaining shared by two people on one CAPEX WO never goes below 0', () => {
+  // Two devs, each C1 day1 = 8 and O1 days 3-10 (64): squad needs ~13 MH moved, but C1 has
+  // last = 2 MD used + 0.625 MD (= 5 MH) of budget and there is no other CAPEX WO.
+  const rows = [
+    row('DevA', 'S1', 'C1', { 1: 8 }), row('DevA', 'S1', 'O1', days(3, 10, 8)),
+    row('DevB', 'S1', 'C1', { 1: 8 }), row('DevB', 'S1', 'O1', days(3, 10, 8))
+  ];
+  const last = 2.625;
+  const plan = App.planRebalance(ctxFor(rows, [DEV('DevA'), DEV('DevB')], { remainingLast: { C1: last } }));
+  const moved = plan.moves.reduce((a, m) => a + m.mh, 0);
+  const used = 2; // MD already booked on C1 (16 MH)
+  assert.ok(used + moved / 8 <= last + 1e-9, 'C1 remaining went negative');
+  assert.strictEqual(moved, 5);
+  assert.ok(plan.squads[0].afterPct > 0.8);
+});
+
+test('21 working days scales ceilings x1.05 (round 1 stops earlier than at 20 days)', () => {
+  // dev4Rows: O = 18 MH. Developer OPEX ceiling = 2 MD * 1.05 * 8 = 16.8 MH -> excess 1.2.
+  // Unit 1 fits (<= 1.2) -> excess 0.2; the next unit (1 MH, day 4 now holds 1) exceeds 0.2 -> refused. 1 move
+  // (at 20 days the ceiling is 16 and two units move).
+  const plan = App.planRebalance(ctxFor(dev4Rows(), [DEV('Dev4')], { workingDays: 21 }));
+  assert.strictEqual(plan.moves.length, 1);
+  assert.strictEqual(plan.moves[0].round, 1);
+  assert.strictEqual(plan.squads[0].status, 'needs-continue');
+});
+
+test('a person in two squads is reported for the over squad even when their first squad is fine', () => {
+  const rows = [row('Carol', 'SQ1', 'C1', { 1: 8 }), row('Carol', 'SQ2', 'O1', { 1: 8 })];
+  const plan = App.planRebalance(ctxFor(rows, [DEV('Carol')]), { includeRound2: true });
+  assert.strictEqual(plan.squads.find(s => s.sq === 'SQ2').status, 'unresolvable');
+  assert.strictEqual(plan.moves.length, 0);
+  assert.deepStrictEqual(plan.skipped, [{ name: 'Carol', sq: 'SQ2', reason: 'อยู่หลาย squad' }]);
+});
+
+test('a fixed squad re-plans to zero moves after applyMoves (idempotent)', () => {
+  const rows = [row('Dev1', 'S1', 'C1', { 1: 8, 2: 8 }), row('Dev1', 'S1', 'O1', days(3, 11, 8))];
+  const plan = App.planRebalance(ctxFor(rows, [DEV('Dev1')]));
+  assert.strictEqual(plan.squads[0].status, 'fixed');
+  const after = App.applyMoves(rows, plan.moves);
+  const again = App.planRebalance(ctxFor(after, [DEV('Dev1')]));
+  assert.strictEqual(again.moves.length, 0);
+  assert.strictEqual(again.squads[0].status, 'ok');
+});
+
 process.on('exit', () => {
   if (failures > 0) { console.log(failures + ' failing test(s)'); process.exitCode = 1; }
   else { console.log('All rebalance tests passed'); }

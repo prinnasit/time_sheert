@@ -583,7 +583,9 @@ function planRebalance(ctx, opts) {
   const skipped = [];
   overSquads.forEach(sq => {
     Object.keys(persons).map(k => persons[k]).forEach(p => {
-      if (p.sq !== sq || p.startOpexMH <= PLAN_EPS) return;
+      if (!personSquads[p.nameKey][sq]) return;
+      const opexInSq = p.entries.reduce((a, e) => a + (e.category === 'OPEX' && e.sq === sq ? sumDays(e) : 0), 0);
+      if (opexInSq <= PLAN_EPS) return;
       const reason = ineligibleReason(p);
       if (reason) skipped.push({ name: p.name, sq: sq, reason: reason });
     });
@@ -1445,16 +1447,37 @@ if (typeof module !== 'undefined' && module.exports) {
   // Working days this month: auto-counted (Mon-Fri) from the month of an
   // uploaded sheet, otherwise from the current month; the user can overwrite
   // it (e.g. to remove public holidays).
-  function setWorkingDaysFromMonth(ym, sourceLabel) {
+  const WORKING_DAYS_STORAGE_KEY = 'woTimesheetSummary.workingDays';
+  function saveWorkingDays() {
+    try {
+      localStorage.setItem(WORKING_DAYS_STORAGE_KEY, JSON.stringify({ value: workingDaysInput.value, hint: workingDaysHint.textContent }));
+    } catch (e) { /* ignore */ }
+  }
+  function setWorkingDaysFromMonth(ym, sourceLabel, persist) {
     workingDaysInput.value = String(countWorkingDays(ym.year, ym.month));
     workingDaysHint.textContent = 'นับวันจันทร์–ศุกร์ของ ' + (ym.month + 1) + '/' + ym.year + ' (' + sourceLabel + ') — แก้ได้ถ้ามีวันหยุดนักขัตฤกษ์';
+    if (persist !== false) saveWorkingDays();
+  }
+  function setWorkingDaysToCurrentMonth() {
+    const now = new Date();
+    setWorkingDaysFromMonth({ year: now.getFullYear(), month: now.getMonth() }, 'เดือนปัจจุบัน', false);
   }
   function workingDaysValue() {
     const n = Number(workingDaysInput.value);
     return n > 0 ? n : null;
   }
-  workingDaysInput.addEventListener('input', () => { workingDaysHint.textContent = 'แก้เอง'; });
-  (function () { const now = new Date(); setWorkingDaysFromMonth({ year: now.getFullYear(), month: now.getMonth() }, 'เดือนปัจจุบัน'); })();
+  workingDaysInput.addEventListener('input', () => { workingDaysHint.textContent = 'แก้เอง'; saveWorkingDays(); });
+  setWorkingDaysToCurrentMonth();
+  try {
+    const rawWd = localStorage.getItem(WORKING_DAYS_STORAGE_KEY);
+    if (rawWd) {
+      const wd = JSON.parse(rawWd);
+      if (wd && Number(wd.value) > 0) {
+        workingDaysInput.value = String(wd.value);
+        if (typeof wd.hint === 'string' && wd.hint) workingDaysHint.textContent = wd.hint;
+      }
+    }
+  } catch (e) { /* ignore */ }
 
   try {
     const saved = localStorage.getItem(MAPPING_STORAGE_KEY);
@@ -1515,6 +1538,10 @@ if (typeof module !== 'undefined' && module.exports) {
         populateGridFromTSV(timesheetGrid, timesheetInput.value);
         clearRebalanceState(); rebalanceCard.hidden = true;
         lastBefore = null; changelogCard.hidden = true;
+        lastChangeLogRows = null;
+        table1Container.innerHTML = ''; table2Container.innerHTML = '';
+        lastTable1Rows = lastTable2Rows = null;
+        lastTable1 = lastTable2 = null;
         uploadStatus.textContent = 'Loaded ' + rows.length + ' row(s) from ' + file.name;
       } catch (err) {
         uploadStatus.textContent = 'Failed to read file: ' + err.message;
@@ -1641,6 +1668,8 @@ if (typeof module !== 'undefined' && module.exports) {
       if (thisVal != null) remainingState.lastMonth[col.key] = String(Math.round(thisVal * 100) / 100);
     });
     saveRemainingState();
+    setWorkingDaysToCurrentMonth();
+    try { localStorage.removeItem(WORKING_DAYS_STORAGE_KEY); } catch (e) { /* ignore */ }
     clearRebalanceState(); rebalanceCard.hidden = true;
     lastBefore = null; changelogCard.hidden = true;
     renderTable1(lastTable1);
@@ -2131,6 +2160,13 @@ if (typeof module !== 'undefined' && module.exports) {
   copyTable2Btn.addEventListener('click', () => copyRows(lastTable2Rows, lastTable2 ? buildTable2ClipboardHTML(lastTable2, lastBefore && lastBefore.table2) : '', copyTable2Btn));
   downloadTable1Btn.addEventListener('click', () => downloadRows(lastTable1Rows, 'wo-summary'));
   downloadTable2Btn.addEventListener('click', () => downloadRows(lastTable2Rows, 'wo-percent'));
+
+  // Restored rebalance (after a reload): show Undo + the change log without
+  // needing Run. Everything they touch is declared above; wrapped so a bad
+  // saved state can never break startup.
+  if (rebalanceState) {
+    try { renderRebalance(); renderChangeLog(); } catch (e) { /* ignore */ }
+  }
 })();
 </script>
 
