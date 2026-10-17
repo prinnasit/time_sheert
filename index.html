@@ -900,6 +900,10 @@ if (typeof module !== 'undefined' && module.exports) {
   td.pct-alert { background: var(--error-bg); color: var(--error-text); font-weight: 700; }
   [hidden] { display: none !important; }
   #working-days-input { width: 72px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; }
+  td.cell-changed { background: var(--warn-bg); color: var(--warn-text); font-weight: 600; }
+  #rebalance-container select { padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; }
+  #rebalance-container .banner { margin-bottom: 8px; }
+  #rebalance-container .row { margin-top: 12px; }
 </style>
 
 <header class="page-head">
@@ -980,6 +984,11 @@ if (typeof module !== 'undefined' && module.exports) {
   <div id="table2-container" class="table-scroll"></div>
 </section>
 
+<section class="card" id="rebalance-card" hidden>
+  <div class="card-head"><h2>Rebalance &middot; ลด OPEX ให้ไม่เกิน 80%</h2></div>
+  <div id="rebalance-container"></div>
+</section>
+
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <script>
@@ -1022,12 +1031,27 @@ if (typeof module !== 'undefined' && module.exports) {
   // Table 2: flag a squad whose OPEX share is unusually high — CAPEX work
   // is what's normally expected to dominate, so a squad running mostly
   // OPEX is worth a second look.
-  const OPEX_PCT_ALERT_THRESHOLD = 0.8;
+  const OPEX_PCT_ALERT_THRESHOLD = OPEX_THRESHOLD;
 
   let lastTable1Rows = null;
   let lastTable2Rows = null;
   let lastTable1 = null;
   let lastTable2 = null;
+  const REBALANCE_STORAGE_KEY = 'woTimesheetSummary.rebalance';
+  const TIMESHEET_STORAGE_KEY = 'woTimesheetSummary.timesheetText';
+  // After the first Apply: { original: <grid rows before any edit>, moves: <every applied move> }.
+  let rebalanceState = null;
+  let rebalanceIncludeRound2 = false;
+  let rebalanceOverrides = {};
+  const rebalanceCard = document.getElementById('rebalance-card');
+  const rebalanceContainer = document.getElementById('rebalance-container');
+  try {
+    const rawRb = localStorage.getItem(REBALANCE_STORAGE_KEY);
+    if (rawRb) {
+      const v = JSON.parse(rawRb);
+      if (v && Array.isArray(v.original) && Array.isArray(v.moves)) rebalanceState = v;
+    }
+  } catch (e) { /* ignore corrupt saved state */ }
 
   // Remaining budget/quota — a running balance per CAPEX column, matching
   // the original template's "Remaining (JUL)"/"Remaining (AUG)" rows
@@ -1349,6 +1373,7 @@ if (typeof module !== 'undefined' && module.exports) {
   const timesheetGrid = createGridEditor(timesheetGridMount, TIMESHEET_COLUMNS, timesheetAddRowBtn, 8, () => {
     timesheetInput.value = serializeGridToTSV(TIMESHEET_COLUMNS.map(c => c.label), timesheetGrid);
     timesheetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    if (rebalanceState) persistTimesheetText();
   }, true);
 
   const ROLE_CEILINGS_STORAGE_KEY = 'woTimesheetSummary.roleCeilings';
@@ -1421,6 +1446,12 @@ if (typeof module !== 'undefined' && module.exports) {
     if (saved) mappingInput.value = saved;
   } catch (e) { /* localStorage unavailable, ignore */ }
   populateGridFromTSV(mappingGrid, mappingInput.value);
+  if (rebalanceState) {
+    try {
+      const savedTs = localStorage.getItem(TIMESHEET_STORAGE_KEY);
+      if (savedTs) { timesheetInput.value = savedTs; populateGridFromTSV(timesheetGrid, savedTs); }
+    } catch (e) { /* ignore */ }
+  }
   syncMappingRemainingDisplay();
 
   mappingInput.addEventListener('input', () => {
@@ -1467,6 +1498,7 @@ if (typeof module !== 'undefined' && module.exports) {
         const lines = [header].concat(rows.map(r => r.map(v => (v == null ? '' : v)).join('\t')));
         timesheetInput.value = lines.join('\n');
         populateGridFromTSV(timesheetGrid, timesheetInput.value);
+        clearRebalanceState(); rebalanceCard.hidden = true;
         uploadStatus.textContent = 'Loaded ' + rows.length + ' row(s) from ' + file.name;
       } catch (err) {
         uploadStatus.textContent = 'Failed to read file: ' + err.message;
@@ -1585,6 +1617,7 @@ if (typeof module !== 'undefined' && module.exports) {
       if (thisVal != null) remainingState.lastMonth[col.key] = String(Math.round(thisVal * 100) / 100);
     });
     saveRemainingState();
+    clearRebalanceState(); rebalanceCard.hidden = true;
     renderTable1(lastTable1);
     syncMappingRemainingDisplay();
     if (lastTable1Rows) appendRemainingRows(lastTable1Rows, lastTable1);
@@ -1627,8 +1660,148 @@ if (typeof module !== 'undefined' && module.exports) {
     table2Container.innerHTML = html;
   }
 
+  function saveRebalanceState() {
+    try { localStorage.setItem(REBALANCE_STORAGE_KEY, JSON.stringify(rebalanceState)); } catch (e) { /* ignore */ }
+  }
+  function persistTimesheetText() {
+    try { localStorage.setItem(TIMESHEET_STORAGE_KEY, timesheetInput.value); } catch (e) { /* ignore */ }
+  }
+  function clearRebalanceState() {
+    rebalanceState = null;
+    rebalanceIncludeRound2 = false;
+    rebalanceOverrides = {};
+    try {
+      localStorage.removeItem(REBALANCE_STORAGE_KEY);
+      localStorage.removeItem(TIMESHEET_STORAGE_KEY);
+    } catch (e) { /* ignore */ }
+  }
+  function setTimesheetRows(rows) {
+    timesheetGrid.setRows(rows);
+    timesheetInput.value = serializeGridToTSV(TIMESHEET_COLUMNS.map(c => c.label), timesheetGrid);
+  }
+
+  function buildRebalanceCtx(rows, mapping) {
+    const remainingLast = {};
+    Object.keys(remainingState.lastMonth).forEach(k => {
+      const v = parseRemainingValue(remainingState.lastMonth[k]);
+      if (v != null) remainingLast[k] = v;
+    });
+    const now = new Date();
+    return {
+      rowArrays: rows,
+      mapping: mapping,
+      roleMap: parsePeopleRoles(peopleRolesGrid.getRows()),
+      ceilings: parseRoleCeilings(roleCeilingsGrid.getRows()).map,
+      workingDays: workingDaysValue() || countWorkingDays(now.getFullYear(), now.getMonth()),
+      remainingLast: remainingLast,
+      threshold: OPEX_PCT_ALERT_THRESHOLD
+    };
+  }
+
+  function currentPlan() {
+    return planRebalance(
+      buildRebalanceCtx(timesheetGrid.getRows(), parseMappingText(mappingInput.value)),
+      { includeRound2: rebalanceIncludeRound2, targetOverrides: rebalanceOverrides }
+    );
+  }
+
+  function fmtMD(mh) { return (Math.round(mh * 100) / 100).toString(); }
+
+  function renderRebalance() {
+    const plan = currentPlan();
+    const flagged = plan.squads.filter(s => s.status !== 'ok');
+    if (flagged.length === 0 && !rebalanceState) {
+      rebalanceCard.hidden = true;
+      rebalanceContainer.innerHTML = '';
+      return;
+    }
+    rebalanceCard.hidden = false;
+    let html = '';
+
+    if (flagged.length > 0) {
+      html += '<p class="card-desc">เพดานคำนวณจากวันทำงาน ' + escapeHtml(String(workingDaysValue() || '-')) + ' วัน (× วันทำงาน ÷ 20) — เลือกคนที่ลง OPEX เกินเพดานของตำแหน่งก่อน ย้ายเท่าที่จำเป็นให้ squad ไม่เกิน 80%</p>';
+    }
+    flagged.forEach(s => {
+      const before = formatPct(s.beforePct), after = formatPct(s.afterPct);
+      if (s.status === 'fixed') {
+        html += '<p class="card-desc">✓ ' + escapeHtml(s.sq) + ': OPEX ' + before + ' → ' + after + '</p>';
+      } else if (s.status === 'needs-continue') {
+        html += '<div class="banner warn">' + escapeHtml(s.sq) + ' ยังเหลือ OPEX ' + after + ' หลังย้ายตามเพดานของตำแหน่ง (รอบที่ 1) — กด "ทำต่อ" เพื่อลองย้ายคนที่ยังมีที่ว่างใน CAPEX (รอบที่ 2)</div>';
+      } else {
+        html += '<div class="banner warn">' + escapeHtml(s.sq) + ' ยังเหลือ OPEX ' + after + ' ไม่สามารถแก้ได้ภายในเพดานของตำแหน่ง — ต้องแก้ด้วยตนเองใน Timesheet</div>';
+      }
+    });
+    if (plan.skipped.length > 0) {
+      html += '<div class="banner warn">ข้ามคนที่ระบบแก้ให้ไม่ได้: ' +
+        plan.skipped.map(s => escapeHtml(s.name || '(ไม่มีชื่อ)') + ' (' + escapeHtml(s.reason) + ')').join(', ') + '</div>';
+    }
+
+    if (plan.lines.length > 0) {
+      html += '<div class="table-scroll"><table><thead><tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>Squad</th><th>OPEX (MD) / เพดาน</th><th>ย้าย (MH)</th><th>จาก WO</th><th>ไป CAPEX WO</th><th>รอบ</th></tr></thead><tbody>';
+      plan.lines.forEach(l => {
+        const opts = l.targetOptions.map(o =>
+          '<option value="' + escapeHtml(o.woKey) + '"' + (o.woKey === l.toWoKey ? ' selected' : '') + '>' + escapeHtml(o.woNo + (o.woName && o.woName !== o.woNo ? ' — ' + o.woName : '')) + '</option>').join('');
+        html += '<tr><td>' + escapeHtml(l.name) + '</td><td>' + escapeHtml(l.role) + '</td><td>' + escapeHtml(l.sq) + '</td>' +
+          '<td>' + fmtMD(l.opexMDBefore) + ' / ' + fmtMD(l.opexCeilingMD) + '</td>' +
+          '<td>' + fmtMD(l.movedMH) + (l.error ? ' ⚠ ' + escapeHtml(l.error) : '') + '</td>' +
+          '<td>' + escapeHtml(l.fromWoNos.join(', ')) + '</td>' +
+          '<td><select class="rb-target" data-name-key="' + escapeHtml(l.nameKey) + '">' + opts + '</select></td>' +
+          '<td>' + (l.movedMH === 0 ? '' : l.round) + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    if (flagged.length > 0) {
+      const needsContinue = flagged.some(s => s.status === 'needs-continue');
+      html += '<div class="row"><button type="button" class="btn btn-primary" data-rb-action="apply"' + (plan.moves.length ? '' : ' disabled') + '>Apply</button>';
+      if (needsContinue) html += '<button type="button" class="btn" data-rb-action="continue">ทำต่อ (รอบที่ 2)</button>';
+      html += '</div>';
+    }
+    if (rebalanceState) {
+      html += '<p class="card-desc">แก้ Timesheet แล้ว — เก็บฉบับเดิมไว้ให้แล้ว</p>' +
+        '<div class="row"><button type="button" class="btn" data-rb-action="undo">Undo (คืนค่าเดิมทั้งหมด)</button></div>';
+    }
+    rebalanceContainer.innerHTML = html;
+  }
+
+  function applyRebalance() {
+    const rows = timesheetGrid.getRows();
+    const plan = currentPlan();
+    if (plan.moves.length === 0) return;
+    if (!rebalanceState) rebalanceState = { original: rows.map(r => r.slice()), moves: [] };
+    rebalanceState.moves = rebalanceState.moves.concat(plan.moves);
+    saveRebalanceState();
+    setTimesheetRows(applyMoves(rows, plan.moves));
+    persistTimesheetText();
+    rebalanceIncludeRound2 = false;
+    rebalanceOverrides = {};
+    runBtn.click();
+  }
+
+  function undoRebalance() {
+    if (!rebalanceState) return;
+    setTimesheetRows(rebalanceState.original);
+    clearRebalanceState();
+    runBtn.click();
+  }
+
+  rebalanceContainer.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-rb-action]');
+    if (!btn) return;
+    const action = btn.dataset.rbAction;
+    if (action === 'apply') applyRebalance();
+    else if (action === 'undo') undoRebalance();
+    else if (action === 'continue') { rebalanceIncludeRound2 = true; renderRebalance(); }
+  });
+  rebalanceContainer.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('rb-target')) return;
+    rebalanceOverrides[e.target.dataset.nameKey] = e.target.value;
+    renderRebalance();
+  });
+
   runBtn.addEventListener('click', () => {
     clearBanners();
+    rebalanceCard.hidden = true; rebalanceIncludeRound2 = false; rebalanceOverrides = {};
     table1Container.innerHTML = '';
     table2Container.innerHTML = '';
     lastTable1Rows = null;
@@ -1678,6 +1851,7 @@ if (typeof module !== 'undefined' && module.exports) {
     lastTable2Rows = table2ToRows(table2);
     lastTable1 = table1;
     lastTable2 = table2;
+    renderRebalance();
   });
 
   function flashButton(btn, text) {

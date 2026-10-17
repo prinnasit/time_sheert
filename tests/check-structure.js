@@ -9,7 +9,8 @@ const requiredIds = [
   'run-btn', 'banners',
   'table1-container', 'copy-table1-btn', 'download-table1-btn', 'new-month-btn', 'new-month-status',
   'table2-container', 'copy-table2-btn', 'download-table2-btn',
-  'role-ceilings-grid', 'role-ceilings-add-row-btn', 'role-ceilings-reset-btn', 'working-days-input', 'working-days-hint', 'people-roles-grid', 'people-roles-add-row-btn', 'role-options'
+  'role-ceilings-grid', 'role-ceilings-add-row-btn', 'role-ceilings-reset-btn', 'working-days-input', 'working-days-hint', 'people-roles-grid', 'people-roles-add-row-btn', 'role-options',
+  'rebalance-card', 'rebalance-container'
 ];
 
 const missing = requiredIds.filter(id => !html.includes('id="' + id + '"'));
