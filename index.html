@@ -390,6 +390,243 @@ function diffCell(before, after) {
   return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
 }
 
+// ---------------------------------------------------------------------
+// OPEX rebalance planner
+// ---------------------------------------------------------------------
+
+const PLAN_EPS = 1e-9;
+
+// Parses grid rows into per-row entries that keep the 31 daily values.
+// Same validity rules as parseDataRows (<5 cells, blank WO No. or a
+// non-numeric day cell => row ignored). `index` is the position in
+// `rowArrays`, which applyMoves() uses to write moves back.
+function extractEntries(rowArrays, mapping) {
+  const entries = [];
+  rowArrays.forEach((r, index) => {
+    if (!r || r.length < 5) return;
+    const woNo = String(r[2] == null ? '' : r[2]).trim();
+    if (!woNo) return;
+    const days = [];
+    for (let i = 0; i < 31; i++) {
+      const p = parseNum(r[5 + i]);
+      if (!p.ok) return;
+      days.push(p.value);
+    }
+    const name = String(r[0] == null ? '' : r[0]).trim();
+    const woKey = normalizeWO(woNo);
+    const m = mapping.map[woKey];
+    entries.push({
+      index: index,
+      name: name,
+      nameKey: normalizeKey(name),
+      sq: String(r[1] == null ? '' : r[1]).trim() || '(Unspecified)',
+      woNo: woNo,
+      woKey: woKey,
+      woName: String(r[3] == null ? '' : r[3]).trim(),
+      fte: String(r[4] == null ? '' : r[4]),
+      category: m ? m.category : 'UNMAPPED',
+      days: days
+    });
+  });
+  return entries;
+}
+
+function planRebalance(ctx, opts) {
+  opts = opts || {};
+  const threshold = ctx.threshold == null ? OPEX_THRESHOLD : ctx.threshold;
+  const scale = ctx.workingDays / BASE_MONTH_MD;
+  const overrides = opts.targetOverrides || {};
+  const remainingLast = ctx.remainingLast || {};
+  const entries = extractEntries(ctx.rowArrays, ctx.mapping);
+
+  const sumDays = e => e.days.reduce((a, b) => a + b, 0);
+  const uniq = a => a.filter((v, i) => a.indexOf(v) === i);
+
+  const capexOptions = Object.keys(ctx.mapping.map)
+    .filter(k => ctx.mapping.map[k].category === 'CAPEX')
+    .map(k => ({ woKey: k, woNo: ctx.mapping.map[k].wo, woName: ctx.mapping.map[k].name || ctx.mapping.map[k].wo }));
+
+  // -- aggregate current state ------------------------------------------
+  const squads = {};
+  const squadOrder = [];
+  const woUsedMD = {};
+  const persons = {};
+  const personSquads = {};
+  entries.forEach(e => {
+    if (!squads[e.sq]) { squads[e.sq] = { capex: 0, opex: 0 }; squadOrder.push(e.sq); }
+    const mh = sumDays(e);
+    woUsedMD[e.woKey] = (woUsedMD[e.woKey] || 0) + mh / MH_PER_DAY;
+    if (e.category === 'CAPEX') squads[e.sq].capex += mh;
+    else if (e.category === 'OPEX') squads[e.sq].opex += mh;
+    const p = persons[e.nameKey] || (persons[e.nameKey] = { nameKey: e.nameKey, name: e.name, sq: e.sq, entries: [] });
+    p.entries.push(e);
+    (personSquads[e.nameKey] = personSquads[e.nameKey] || {})[e.sq] = true;
+  });
+
+  const personMH = (p, cat) => p.entries.reduce((a, e) => a + (e.category === cat ? sumDays(e) : 0), 0);
+  const squadPct = sq => { const t = squads[sq]; const ch = t.capex + t.opex; return ch > 0 ? t.opex / ch : null; };
+  const isOver = sq => { const p = squadPct(sq); return p != null && p > threshold; };
+
+  Object.keys(persons).forEach(k => { persons[k].startOpexMH = personMH(persons[k], 'OPEX'); });
+  const beforePct = {};
+  squadOrder.forEach(sq => { beforePct[sq] = squadPct(sq); });
+
+  function ineligibleReason(p) {
+    if (!p.nameKey) return 'ไม่มีชื่อ';
+    if (Object.keys(personSquads[p.nameKey]).length > 1) return 'อยู่หลาย squad';
+    const roleName = ctx.roleMap[p.nameKey];
+    if (!roleName) return 'ยังไม่ได้ระบุตำแหน่ง';
+    if (!ctx.ceilings[normalizeKey(roleName)]) return 'ไม่พบตำแหน่ง "' + roleName + '" ในตารางเพดาน';
+    if (!p.entries.some(e => e.category === 'CAPEX')) return 'ไม่มี CAPEX WO';
+    return null;
+  }
+  function ceilOf(p) {
+    const c = ctx.ceilings[normalizeKey(ctx.roleMap[p.nameKey])];
+    return { opexMH: c.opex * scale * MH_PER_DAY, capexMH: c.capex * scale * MH_PER_DAY };
+  }
+  function infoOf(p) {
+    const c = ceilOf(p);
+    const o = personMH(p, 'OPEX'), cx = personMH(p, 'CAPEX');
+    return { o: o, excess: o - c.opexMH, headroom: c.capexMH - cx };
+  }
+
+  // The person's own CAPEX WOs, biggest first — or just the user's override.
+  function targetsFor(p) {
+    const ov = overrides[p.nameKey];
+    if (ov) { const m = capexOptions.find(o => o.woKey === ov); return m ? [m] : []; }
+    const own = {};
+    p.entries.forEach(e => {
+      if (e.category !== 'CAPEX') return;
+      const o = own[e.woKey] || (own[e.woKey] = { woKey: e.woKey, woNo: e.woNo, woName: e.woName || e.woNo, mh: 0 });
+      o.mh += sumDays(e);
+    });
+    return Object.keys(own).map(k => own[k]).sort((a, b) => (b.mh - a.mh) || (a.woKey < b.woKey ? -1 : 1));
+  }
+  function optionsFor(p) {
+    const own = uniq(p.entries.filter(e => e.category === 'CAPEX').map(e => e.woKey));
+    const first = own.map(k => capexOptions.find(o => o.woKey === k)).filter(Boolean);
+    return first.concat(capexOptions.filter(o => own.indexOf(o.woKey) < 0));
+  }
+
+  // -- the moves --------------------------------------------------------
+  const moves = [];
+  const blocked = {};
+  const BLOCKED_TEXT = 'งบ Remaining ของ WO ปลายทางไม่พอ';
+
+  // Moves one unit (<= 1 MH) of OPEX to CAPEX for person p. Returns the MH
+  // moved, or 0 when nothing can be moved (no OPEX left, the unit would
+  // exceed `limitMH`, or no target WO has Remaining budget).
+  function tryMoveUnit(p, limitMH, targets, round) {
+    let src = null, srcTotal = 0;
+    p.entries.forEach(e => {
+      if (e.category !== 'OPEX') return;
+      const t = sumDays(e);
+      if (t > srcTotal + PLAN_EPS) { src = e; srcTotal = t; }
+    });
+    if (!src) return 0;
+    let day = -1;
+    for (let d = 30; d >= 0; d--) { if (src.days[d] > PLAN_EPS) { day = d; break; } }
+    if (day < 0) return 0;
+    const unit = Math.min(1, src.days[day]);
+    if (unit > limitMH + PLAN_EPS) return 0;
+
+    const target = targets.find(t => {
+      const last = remainingLast[t.woKey];
+      return last === undefined || last - (woUsedMD[t.woKey] || 0) - unit / MH_PER_DAY >= -PLAN_EPS;
+    });
+    if (!target) { blocked[p.nameKey] = BLOCKED_TEXT; return 0; }
+
+    let tgt = p.entries.find(e => e.category === 'CAPEX' && e.woKey === target.woKey);
+    if (!tgt) {
+      tgt = {
+        index: null, name: p.name, nameKey: p.nameKey, sq: p.sq, woNo: target.woNo, woKey: target.woKey,
+        woName: target.woName, fte: src.fte, category: 'CAPEX', days: new Array(31).fill(0)
+      };
+      p.entries.push(tgt);
+    }
+    src.days[day] -= unit;
+    tgt.days[day] += unit;
+    squads[p.sq].opex -= unit;
+    squads[p.sq].capex += unit;
+    woUsedMD[target.woKey] = (woUsedMD[target.woKey] || 0) + unit / MH_PER_DAY;
+    moves.push({
+      nameKey: p.nameKey, name: p.name, sq: p.sq, fte: src.fte, round: round,
+      fromRow: src.index, fromWoNo: src.woNo, fromWoKey: src.woKey,
+      toRow: tgt.index, toWoNo: tgt.woNo, toWoKey: tgt.woKey, toWoName: tgt.woName,
+      day: day + 1, mh: unit
+    });
+    return unit;
+  }
+
+  function runRound(sq, round) {
+    let cands = Object.keys(persons).map(k => persons[k]).filter(p => p.sq === sq && !ineligibleReason(p));
+    if (round === 1) {
+      cands = cands.filter(p => infoOf(p).excess > PLAN_EPS).sort((a, b) => infoOf(b).excess - infoOf(a).excess);
+    } else {
+      cands = cands.filter(p => infoOf(p).headroom > PLAN_EPS && infoOf(p).o > PLAN_EPS)
+        .sort((a, b) => infoOf(b).headroom - infoOf(a).headroom);
+    }
+    for (const p of cands) {
+      const targets = targetsFor(p);
+      while (isOver(sq)) {
+        const i = infoOf(p);
+        const limit = round === 1 ? Math.min(i.excess, i.headroom) : Math.min(i.o, i.headroom);
+        if (limit <= PLAN_EPS) break;
+        if (!tryMoveUnit(p, limit, targets, round)) break;
+      }
+      if (!isOver(sq)) return;
+    }
+  }
+
+  const overSquads = squadOrder.filter(sq => isOver(sq));
+
+  const skipped = [];
+  overSquads.forEach(sq => {
+    Object.keys(persons).map(k => persons[k]).forEach(p => {
+      if (p.sq !== sq || p.startOpexMH <= PLAN_EPS) return;
+      const reason = ineligibleReason(p);
+      if (reason) skipped.push({ name: p.name, sq: sq, reason: reason });
+    });
+  });
+
+  overSquads.forEach(sq => {
+    runRound(sq, 1);
+    if (opts.includeRound2 && isOver(sq)) runRound(sq, 2);
+  });
+
+  // -- result -----------------------------------------------------------
+  const squadResults = squadOrder.map(sq => {
+    let status = 'ok';
+    if (beforePct[sq] != null && beforePct[sq] > threshold) {
+      status = !isOver(sq) ? 'fixed' : (opts.includeRound2 ? 'unresolvable' : 'needs-continue');
+    }
+    return { sq: sq, beforePct: beforePct[sq], afterPct: squadPct(sq), status: status };
+  });
+
+  const lineKeys = [];
+  moves.forEach(m => { if (lineKeys.indexOf(m.nameKey) < 0) lineKeys.push(m.nameKey); });
+  Object.keys(blocked).forEach(k => { if (lineKeys.indexOf(k) < 0) lineKeys.push(k); });
+  const lines = lineKeys.map(k => {
+    const p = persons[k];
+    const mine = moves.filter(m => m.nameKey === k);
+    const firstTarget = targetsFor(p)[0];
+    return {
+      nameKey: k, name: p.name, sq: p.sq, role: ctx.roleMap[k],
+      round: mine.length ? Math.max.apply(null, mine.map(m => m.round)) : 1,
+      movedMH: mine.reduce((a, m) => a + m.mh, 0),
+      opexMDBefore: p.startOpexMH / MH_PER_DAY,
+      opexCeilingMD: ceilOf(p).opexMH / MH_PER_DAY,
+      fromWoNos: uniq(mine.map(m => m.fromWoNo)),
+      toWoKey: overrides[k] || (mine.length ? mine[0].toWoKey : (firstTarget ? firstTarget.woKey : '')),
+      toWoNos: uniq(mine.map(m => m.toWoNo)),
+      targetOptions: optionsFor(p),
+      error: blocked[k] || null
+    };
+  });
+
+  return { squads: squadResults, moves: moves, lines: lines, skipped: skipped, capexOptions: capexOptions };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
@@ -398,7 +635,8 @@ if (typeof module !== 'undefined' && module.exports) {
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
-    takeTimesheetRows, timesheetToAoa, diffCell
+    takeTimesheetRows, timesheetToAoa, diffCell,
+    extractEntries, planRebalance
   };
 }
 </script>
