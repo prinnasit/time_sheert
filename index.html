@@ -989,6 +989,15 @@ if (typeof module !== 'undefined' && module.exports) {
   <div id="rebalance-container"></div>
 </section>
 
+<section class="card" id="changelog-card" hidden>
+  <div class="card-head"><h2>ประวัติการแก้ไข Timesheet</h2></div>
+  <div class="table-actions">
+    <button id="copy-changelog-btn" class="btn" type="button">Copy</button>
+    <button id="download-changelog-btn" class="btn" type="button">Download CSV</button>
+  </div>
+  <div id="changelog-container" class="table-scroll"></div>
+</section>
+
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <script>
@@ -1037,6 +1046,8 @@ if (typeof module !== 'undefined' && module.exports) {
   let lastTable2Rows = null;
   let lastTable1 = null;
   let lastTable2 = null;
+  // { table1, table2 } of the original (pre-rebalance) timesheet, or null.
+  let lastBefore = null;
   const REBALANCE_STORAGE_KEY = 'woTimesheetSummary.rebalance';
   const TIMESHEET_STORAGE_KEY = 'woTimesheetSummary.timesheetText';
   // After the first Apply: { original: <grid rows before any edit>, moves: <every applied move> }.
@@ -1045,6 +1056,10 @@ if (typeof module !== 'undefined' && module.exports) {
   let rebalanceOverrides = {};
   const rebalanceCard = document.getElementById('rebalance-card');
   const rebalanceContainer = document.getElementById('rebalance-container');
+  const changelogCard = document.getElementById('changelog-card');
+  const changelogContainer = document.getElementById('changelog-container');
+  const copyChangelogBtn = document.getElementById('copy-changelog-btn');
+  const downloadChangelogBtn = document.getElementById('download-changelog-btn');
   try {
     const rawRb = localStorage.getItem(REBALANCE_STORAGE_KEY);
     if (rawRb) {
@@ -1499,6 +1514,7 @@ if (typeof module !== 'undefined' && module.exports) {
         timesheetInput.value = lines.join('\n');
         populateGridFromTSV(timesheetGrid, timesheetInput.value);
         clearRebalanceState(); rebalanceCard.hidden = true;
+        lastBefore = null; changelogCard.hidden = true;
         uploadStatus.textContent = 'Loaded ' + rows.length + ' row(s) from ' + file.name;
       } catch (err) {
         uploadStatus.textContent = 'Failed to read file: ' + err.message;
@@ -1525,7 +1541,7 @@ if (typeof module !== 'undefined' && module.exports) {
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  function renderTable1(table1) {
+  function renderTable1(table1, beforeTable1) {
     const groups = [];
     table1.columns.forEach(col => {
       const last = groups[groups.length - 1];
@@ -1546,13 +1562,21 @@ if (typeof module !== 'undefined' && module.exports) {
     table1.squads.forEach(sq => {
       html += '<tr><td>' + escapeHtml(sq) + '</td>';
       table1.columns.forEach(col => {
-        html += '<td>' + formatMH(table1.cellMatrix[sq][col.key] || 0) + '</td>';
+        const d = beforeTable1
+          ? diffCell((beforeTable1.cellMatrix[sq] || {})[col.key] || 0, table1.cellMatrix[sq][col.key] || 0)
+          : { changed: false, text: formatMH(table1.cellMatrix[sq][col.key] || 0) };
+        html += '<td' + (d.changed ? ' class="cell-changed"' : '') + '>' + d.text + '</td>';
       });
       html += '<td>' + formatMH(table1.rowTotals[sq]) + '</td></tr>';
     });
 
     html += '<tr class="summary-row"><td>Summary</td>';
-    table1.columns.forEach(col => { html += '<td>' + formatMH(table1.colTotals[col.key]) + '</td>'; });
+    table1.columns.forEach(col => {
+      const d = beforeTable1
+        ? diffCell(beforeTable1.colTotals[col.key] || 0, table1.colTotals[col.key])
+        : { changed: false, text: formatMH(table1.colTotals[col.key]) };
+      html += '<td' + (d.changed ? ' class="cell-changed"' : '') + '>' + d.text + '</td>';
+    });
     html += '<td>' + formatMH(table1.grandTotal) + '</td></tr>';
 
     html += '<tr class="remaining-row"><td>' + escapeHtml(REMAINING_LAST_LABEL) + '</td>';
@@ -1618,7 +1642,9 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     saveRemainingState();
     clearRebalanceState(); rebalanceCard.hidden = true;
+    lastBefore = null; changelogCard.hidden = true;
     renderTable1(lastTable1);
+    if (lastTable2) { renderTable2(lastTable2); lastTable2Rows = table2ToRows(lastTable2); }
     syncMappingRemainingDisplay();
     if (lastTable1Rows) appendRemainingRows(lastTable1Rows, lastTable1);
     newMonthStatus.textContent = 'อัปเดตแล้ว — "เดือนนี้" เลื่อนไปเป็น "เดือนที่แล้ว"';
@@ -1649,12 +1675,17 @@ if (typeof module !== 'undefined' && module.exports) {
     return rowsResult;
   }
 
-  function renderTable2(table2) {
-    let html = '<table><thead><tr><th>Squad</th><th>CAPEX %</th><th>OPEX %</th></tr></thead><tbody>';
+  function renderTable2(table2, beforeTable2) {
+    const beforeBySq = {};
+    if (beforeTable2) beforeTable2.forEach(r => { beforeBySq[r.sq] = r.opexPct; });
+    let html = '<table><thead><tr><th>Squad</th><th>CAPEX %</th><th>OPEX %</th>' +
+      (beforeTable2 ? '<th>OPEX % (เดิม)</th>' : '') + '</tr></thead><tbody>';
     table2.forEach(r => {
       const opexHigh = r.opexPct != null && r.opexPct > OPEX_PCT_ALERT_THRESHOLD;
       html += '<tr><td>' + escapeHtml(r.sq) + '</td><td>' + formatPct(r.capexPct) + '</td><td' +
-        (opexHigh ? ' class="pct-alert"' : '') + '>' + formatPct(r.opexPct) + '</td></tr>';
+        (opexHigh ? ' class="pct-alert"' : '') + '>' + formatPct(r.opexPct) + '</td>' +
+        (beforeTable2 ? '<td>' + formatPct(beforeBySq[r.sq] == null ? null : beforeBySq[r.sq]) + '</td>' : '') +
+        '</tr>';
     });
     html += '</tbody></table>';
     table2Container.innerHTML = html;
@@ -1759,7 +1790,9 @@ if (typeof module !== 'undefined' && module.exports) {
     }
     if (rebalanceState) {
       html += '<p class="card-desc">แก้ Timesheet แล้ว — เก็บฉบับเดิมไว้ให้แล้ว</p>' +
-        '<div class="row"><button type="button" class="btn" data-rb-action="undo">Undo (คืนค่าเดิมทั้งหมด)</button></div>';
+        '<div class="row"><button type="button" class="btn" data-rb-action="undo">Undo (คืนค่าเดิมทั้งหมด)</button>' +
+        '<button type="button" class="btn" data-rb-action="dl-original">ดาวน์โหลด Timesheet ฉบับเดิม (.xlsx)</button>' +
+        '<button type="button" class="btn" data-rb-action="dl-new">ดาวน์โหลด Timesheet ฉบับใหม่ (.xlsx)</button></div>';
     }
     rebalanceContainer.innerHTML = html;
   }
@@ -1782,7 +1815,46 @@ if (typeof module !== 'undefined' && module.exports) {
     if (!rebalanceState) return;
     setTimesheetRows(rebalanceState.original);
     clearRebalanceState();
+    lastBefore = null; changelogCard.hidden = true;
     runBtn.click();
+  }
+
+  let lastChangeLogRows = null;
+
+  function renderChangeLog() {
+    if (!rebalanceState || rebalanceState.moves.length === 0) {
+      changelogCard.hidden = true;
+      changelogContainer.innerHTML = '';
+      lastChangeLogRows = null;
+      return;
+    }
+    const log = buildChangeLog(rebalanceState.moves);
+    lastChangeLogRows = log;
+    let html = '<table><thead><tr>' + log.header.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr></thead><tbody>';
+    log.rows.forEach(r => { html += '<tr>' + r.map(c => '<td>' + escapeHtml(typeof c === 'number' ? (Math.round(c * 100) / 100) : c) + '</td>').join('') + '</tr>'; });
+    html += '</tbody></table>';
+    changelogContainer.innerHTML = html;
+    changelogCard.hidden = false;
+  }
+
+  function buildChangeLogClipboardHTML(log) {
+    let html = '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;"><tr>' +
+      log.header.map(h => clipCell('td', h, GRID_HEADER_BG, 'left', true)).join('') + '</tr>';
+    log.rows.forEach(r => {
+      html += '<tr>' + r.map((c, i) => clipCell('td', typeof c === 'number' ? String(Math.round(c * 100) / 100) : c, '#ffffff', i >= 4 ? 'right' : 'left', false)).join('') + '</tr>';
+    });
+    return html + '</table>';
+  }
+
+  copyChangelogBtn.addEventListener('click', () => copyRows(lastChangeLogRows, lastChangeLogRows ? buildChangeLogClipboardHTML(lastChangeLogRows) : '', copyChangelogBtn));
+  downloadChangelogBtn.addEventListener('click', () => downloadRows(lastChangeLogRows, 'wo-changelog'));
+
+  function downloadTimesheetXlsx(rows, prefix) {
+    if (typeof XLSX === 'undefined') { addBanner('error', 'โหลดไลบรารี xlsx ไม่สำเร็จ จึงดาวน์โหลดไฟล์ .xlsx ไม่ได้'); return; }
+    const ws = XLSX.utils.aoa_to_sheet(timesheetToAoa(rows));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+    XLSX.writeFile(wb, prefix + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   }
 
   rebalanceContainer.addEventListener('click', (e) => {
@@ -1792,6 +1864,8 @@ if (typeof module !== 'undefined' && module.exports) {
     if (action === 'apply') applyRebalance();
     else if (action === 'undo') undoRebalance();
     else if (action === 'continue') { rebalanceIncludeRound2 = true; renderRebalance(); }
+    else if (action === 'dl-original' && rebalanceState) downloadTimesheetXlsx(rebalanceState.original, 'timesheet-original');
+    else if (action === 'dl-new') downloadTimesheetXlsx(timesheetGrid.getRows(), 'timesheet-new');
   });
   rebalanceContainer.addEventListener('change', (e) => {
     if (!e.target.classList.contains('rb-target')) return;
@@ -1808,16 +1882,22 @@ if (typeof module !== 'undefined' && module.exports) {
     lastTable2Rows = null;
     lastTable1 = null;
     lastTable2 = null;
+    lastBefore = null;
 
+    // Early-return paths still refresh the Rebalance card so Undo stays
+    // reachable when a rebalance is active; renderRebalance() is safe on
+    // empty input (planRebalance copes with no entries / empty mapping).
     const mappingText = mappingInput.value;
     const timesheetText = timesheetInput.value;
 
     if (!mappingText.trim()) {
       addBanner('error', 'กรุณาวางตาราง WO Mapping ก่อนกด Run');
+      renderRebalance();
       return;
     }
     if (!timesheetText.trim()) {
       addBanner('error', 'กรุณาวางข้อมูล Timesheet ก่อนกด Run');
+      renderRebalance();
       return;
     }
 
@@ -1830,6 +1910,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
     if (parsed.rows.length === 0) {
       addBanner('error', 'ไม่พบแถวข้อมูลที่ใช้ได้ใน Timesheet Input');
+      renderRebalance();
       return;
     }
     if (parsed.skippedRows.length > 0) {
@@ -1844,14 +1925,17 @@ if (typeof module !== 'undefined' && module.exports) {
     const table1 = buildTable1(classified.rows);
     const table2 = buildTable2(classified.rows);
 
-    renderTable1(table1);
-    renderTable2(table2);
+    lastBefore = rebalanceState ? summarizeRows(rebalanceState.original, mapping) : null;
+
+    renderTable1(table1, lastBefore && lastBefore.table1);
+    renderTable2(table2, lastBefore && lastBefore.table2);
 
     lastTable1Rows = appendRemainingRows(table1ToRows(table1), table1);
-    lastTable2Rows = table2ToRows(table2);
+    lastTable2Rows = table2ToRows(table2, lastBefore && lastBefore.table2);
     lastTable1 = table1;
     lastTable2 = table2;
     renderRebalance();
+    renderChangeLog();
   });
 
   function flashButton(btn, text) {
@@ -1965,12 +2049,15 @@ if (typeof module !== 'undefined' && module.exports) {
     return html;
   }
 
-  function buildTable2ClipboardHTML(table2) {
+  function buildTable2ClipboardHTML(table2, beforeTable2) {
+    const beforeBySq = {};
+    if (beforeTable2) beforeTable2.forEach(r => { beforeBySq[r.sq] = r.opexPct; });
     let html = '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">';
     html += '<tr>' +
       clipCell('td', 'Squad', GRID_HEADER_BG, 'left', true) +
       clipCell('td', 'CAPEX %', categoryBg('CAPEX'), 'right', true) +
       clipCell('td', 'OPEX %', categoryBg('OPEX'), 'right', true) +
+      (beforeTable2 ? clipCell('td', 'OPEX % (เดิม)', categoryBg('OPEX'), 'right', true) : '') +
       '</tr>';
     table2.forEach(r => {
       const opexHigh = r.opexPct != null && r.opexPct > OPEX_PCT_ALERT_THRESHOLD;
@@ -1978,6 +2065,7 @@ if (typeof module !== 'undefined' && module.exports) {
         clipCell('td', r.sq, '#ffffff', 'left', false) +
         clipCell('td', formatPct(r.capexPct), categoryBg('CAPEX'), 'right', false) +
         clipCell('td', formatPct(r.opexPct), opexHigh ? PCT_ALERT_BG : categoryBg('OPEX'), 'right', opexHigh) +
+        (beforeTable2 ? clipCell('td', formatPct(beforeBySq[r.sq] == null ? null : beforeBySq[r.sq]), '#ffffff', 'right', false) : '') +
         '</tr>';
     });
     html += '</table>';
@@ -2040,7 +2128,7 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   copyTable1Btn.addEventListener('click', () => copyRows(lastTable1Rows, lastTable1 ? buildTable1ClipboardHTML(lastTable1) : '', copyTable1Btn));
-  copyTable2Btn.addEventListener('click', () => copyRows(lastTable2Rows, lastTable2 ? buildTable2ClipboardHTML(lastTable2) : '', copyTable2Btn));
+  copyTable2Btn.addEventListener('click', () => copyRows(lastTable2Rows, lastTable2 ? buildTable2ClipboardHTML(lastTable2, lastBefore && lastBefore.table2) : '', copyTable2Btn));
   downloadTable1Btn.addEventListener('click', () => downloadRows(lastTable1Rows, 'wo-summary'));
   downloadTable2Btn.addEventListener('click', () => downloadRows(lastTable2Rows, 'wo-percent'));
 })();
