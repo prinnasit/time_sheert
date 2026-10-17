@@ -238,6 +238,69 @@ test('targetOverrides redirect a person to another CAPEX WO, creating a new row 
   assert.ok(plan.lines[0].targetOptions.some(o => o.woKey === 'C3'));
 });
 
+// ---- applyMoves / buildChangeLog / summarizeRows --------------------------
+function dayTotals(rows) {
+  const t = {};
+  rows.forEach(r => {
+    for (let d = 0; d < 31; d++) {
+      const v = Number(r[5 + d]) || 0;
+      t[r[0] + '#' + d] = (t[r[0] + '#' + d] || 0) + v;
+    }
+  });
+  return t;
+}
+
+test('applyMoves writes the moves, keeps each person\'s daily totals, and does not mutate its input', () => {
+  const rows = [
+    row('Dev2', 'S1', 'O1', days(1, 10, 8)), row('Dev2', 'S1', 'C1', { 11: 8 }),
+    row('Dev1', 'S1', 'O1', days(1, 4, 8)), row('Dev1', 'S1', 'C1', { 11: 8, 12: 8 })
+  ];
+  const snapshot = JSON.stringify(rows);
+  const plan = App.planRebalance(ctxFor(rows, [DEV('Dev1'), DEV('Dev2')]));
+  const after = App.applyMoves(rows, plan.moves);
+  assert.strictEqual(JSON.stringify(rows), snapshot);
+  assert.deepStrictEqual(dayTotals(after), dayTotals(rows));
+  assert.strictEqual(after[0][5 + 9], '4');   // Dev2 O1 day 10: 8 -> 4
+  assert.strictEqual(after[1][5 + 9], '4');   // Dev2 C1 day 10: '' -> 4
+  const t2 = App.summarizeRows(after, mapping).table2;
+  assert.ok(t2[0].opexPct <= 0.8);
+});
+
+test('applyMoves appends one new row for a WO the person had no row for', () => {
+  const rows = dev5Rows();
+  const plan = App.planRebalance(ctxFor(rows, [DEV('Dev5')]), { targetOverrides: { dev5: 'C3' } });
+  const after = App.applyMoves(rows, plan.moves);
+  assert.strictEqual(after.length, rows.length + 1);
+  const added = after[after.length - 1];
+  assert.deepStrictEqual(added.slice(0, 5), ['Dev5', 'S1', 'C3', 'Cap 3', 'FTE']);
+  assert.strictEqual(added[5 + 13], '4');
+  assert.deepStrictEqual(dayTotals(after), dayTotals(rows));
+});
+
+test('applyMoves writes an emptied source cell as a blank string', () => {
+  const rows = [row('Dev1', 'S1', 'O1', { 5: 1 }), row('Dev1', 'S1', 'C1', {})];
+  const moves = [{ nameKey: 'dev1', name: 'Dev1', sq: 'S1', fte: 'FTE', fromRow: 0, toRow: 1, toWoKey: 'C1', toWoNo: 'C1', toWoName: 'C1', day: 5, mh: 1 }];
+  const after = App.applyMoves(rows, moves);
+  assert.strictEqual(after[0][5 + 4], '');
+  assert.strictEqual(after[1][5 + 4], '1');
+});
+
+test('buildChangeLog sums per-hour moves into one line per person/WO pair/day', () => {
+  const rows = [row('Dev1', 'S1', 'C1', { 1: 8, 2: 8 }), row('Dev1', 'S1', 'O1', days(3, 11, 8))];
+  const plan = App.planRebalance(ctxFor(rows, [DEV('Dev1')]));
+  const log = App.buildChangeLog(plan.moves);
+  assert.deepStrictEqual(log.header, ['Name-Surname', 'Squad', 'From WO', 'To WO', 'Day', 'MH']);
+  assert.deepStrictEqual(log.rows, [['Dev1', 'S1', 'O1', 'C1', 11, 2]]);
+});
+
+test('summarizeRows runs parse → classify → Table 1/2 on grid rows', () => {
+  const rows = [row('Dev1', 'S1', 'C1', { 1: 8 }), row('Dev1', 'S1', 'O1', { 2: 8 })];
+  const s = App.summarizeRows(rows, mapping);
+  assert.strictEqual(s.parsed.rows.length, 2);
+  assert.strictEqual(s.table2[0].opexPct, 0.5);
+  assert.strictEqual(s.table1.grandTotal, 2);
+});
+
 process.on('exit', () => {
   if (failures > 0) { console.log(failures + ' failing test(s)'); process.exitCode = 1; }
   else { console.log('All rebalance tests passed'); }

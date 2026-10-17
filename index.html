@@ -627,6 +627,56 @@ function planRebalance(ctx, opts) {
   return { squads: squadResults, moves: moves, lines: lines, skipped: skipped, capexOptions: capexOptions };
 }
 
+// Applies planRebalance() moves to timesheet grid rows and returns NEW rows.
+function applyMoves(rowArrays, moves) {
+  const rows = rowArrays.map(r => r.slice());
+  const created = {};
+  const fmt = v => { const r = Math.round(v * 1e6) / 1e6; return r === 0 ? '' : String(r); };
+  const num = c => { const p = parseNum(c); return p.ok ? p.value : 0; };
+  moves.forEach(m => {
+    const col = 5 + m.day - 1;
+    const src = rows[m.fromRow];
+    src[col] = fmt(num(src[col]) - m.mh);
+    let tgt;
+    if (m.toRow != null) {
+      tgt = rows[m.toRow];
+    } else {
+      const key = m.nameKey + '|' + m.toWoKey;
+      tgt = created[key];
+      if (!tgt) {
+        tgt = [m.name, m.sq, m.toWoNo, m.toWoName, m.fte].concat(new Array(31).fill(''));
+        created[key] = tgt;
+        rows.push(tgt);
+      }
+    }
+    tgt[col] = fmt(num(tgt[col]) + m.mh);
+  });
+  return rows;
+}
+
+function buildChangeLog(moves) {
+  const order = [];
+  const byKey = {};
+  moves.forEach(m => {
+    const key = [m.nameKey, m.sq, m.fromWoNo, m.toWoNo, m.day].join('|');
+    if (!byKey[key]) {
+      byKey[key] = [m.name, m.sq, m.fromWoNo, m.toWoNo, m.day, 0];
+      order.push(key);
+    }
+    byKey[key][5] += m.mh;
+  });
+  return {
+    header: ['Name-Surname', 'Squad', 'From WO', 'To WO', 'Day', 'MH'],
+    rows: order.map(k => byKey[k])
+  };
+}
+
+function summarizeRows(rowArrays, mapping) {
+  const parsed = parseDataRows(rowArrays);
+  const classified = classifyRows(parsed.rows, mapping);
+  return { parsed: parsed, classified: classified, table1: buildTable1(classified.rows), table2: buildTable2(classified.rows) };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
@@ -636,7 +686,7 @@ if (typeof module !== 'undefined' && module.exports) {
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
     takeTimesheetRows, timesheetToAoa, diffCell,
-    extractEntries, planRebalance
+    extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
   };
 }
 </script>
