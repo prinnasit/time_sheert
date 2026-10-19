@@ -208,6 +208,17 @@ test('DEFAULT_WO_MAPPING parses cleanly with no skipped lines or duplicate WOs',
   assert.strictEqual(parsed.map['Z01'].category, 'NON_CHARGE');
 });
 
+test('DEFAULT_PEOPLE_ROLES: unique names, and every role but Head of Innovation has a Role Ceiling', () => {
+  assert.strictEqual(App.DEFAULT_PEOPLE_ROLES.length, 37);
+  const roleMap = App.parsePeopleRoles(App.DEFAULT_PEOPLE_ROLES);
+  assert.strictEqual(Object.keys(roleMap).length, 37, 'a name is listed twice');
+  const ceilings = App.parseRoleCeilings(App.DEFAULT_ROLE_CEILINGS).map;
+  const noCeiling = App.DEFAULT_PEOPLE_ROLES.filter(r => !ceilings[App.normalizeKey(r[1])]).map(r => r[1]);
+  assert.deepStrictEqual(noCeiling, ['Head of Innovation']);
+  assert.strictEqual(roleMap['Person 16'], 'Developer');
+  assert.ok(!roleMap['Person X1'] && !roleMap['Person X2'], 'struck-through people must not be listed');
+});
+
 process.on('exit', () => {
   if (failures > 0) {
     console.log(failures + ' failing test(s)');

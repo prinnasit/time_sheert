@@ -318,6 +318,51 @@ const DEFAULT_WO_MAPPING = [
   ['Z02', 'Non Charge', 'Z02:Train -> Training / Meeting']
 ];
 
+// [Name-Surname, Role] — loaded into People → Role whenever no non-empty
+// list is saved, and by its "คืนค่าเริ่มต้น" button. Roles use the full names
+// from DEFAULT_ROLE_CEILINGS (the source sheet's DEV / QA / SA / SolAr / ETL /
+// EM / PM / QA Lead abbreviations are expanded); Head of Innovation has no
+// ceiling row on purpose, so the rebalance never edits that timesheet.
+const DEFAULT_PEOPLE_ROLES = [
+  ['Person 01', 'Head of Innovation'],
+  ['Person 02', 'Solution Architect'],
+  ['Person 03', 'Quality Assurance Lead'],
+  ['Person 04', 'Engineering Manager'],
+  ['Person 05', 'Engineering Team Leader'],
+  ['Person 06', 'Engineering Team Leader'],
+  ['Person 07', 'Engineering Team Leader'],
+  ['Person 08', 'Project Manager'],
+  ['Person 09', 'System Analyst'],
+  ['Person 10', 'Developer'],
+  ['Person 11', 'Developer'],
+  ['Person 12', 'Developer'],
+  ['Person 13', 'Developer'],
+  ['Person 14', 'Developer'],
+  ['Person 15', 'Developer'],
+  ['Person 16', 'Developer'],
+  ['Person 17', 'Developer'],
+  ['Person 18', 'Developer'],
+  ['Person 19', 'Software Quality Assurance'],
+  ['Person 20', 'Software Quality Assurance'],
+  ['Person 21', 'System Analyst'],
+  ['Person 22', 'Developer'],
+  ['Person 23', 'Developer'],
+  ['Person 24', 'Developer'],
+  ['Person 25', 'Developer'],
+  ['Person 26', 'Developer'],
+  ['Person 27', 'Developer'],
+  ['Person 28', 'Software Quality Assurance'],
+  ['Person 29', 'Software Quality Assurance'],
+  ['Person 30', 'System Analyst'],
+  ['Person 31', 'Developer'],
+  ['Person 32', 'Developer'],
+  ['Person 33', 'Developer'],
+  ['Person 34', 'Software Quality Assurance'],
+  ['Person 35', 'Developer'],
+  ['Person 36', 'Developer'],
+  ['Person 37', 'System Analyst']
+];
+
 const TIMESHEET_HEADER = ['Name-Surname', 'SQ', 'WO No.', 'WO Name', 'FTE/OS']
   .concat(Array.from({ length: 31 }, (_, i) => 'Day' + (i + 1)));
 
@@ -704,7 +749,7 @@ if (typeof module !== 'undefined' && module.exports) {
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
-    OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, TIMESHEET_HEADER, normalizeKey,
+    OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
     takeTimesheetRows, timesheetToAoa, diffCell,
     extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
@@ -975,6 +1020,9 @@ if (typeof module !== 'undefined' && module.exports) {
   <p class="card-desc">ใส่ชื่อ (ตรงกับ Name-Surname ใน Timesheet) และตำแหน่งของแต่ละคน — วางจาก Excel ได้ ระบบจำให้ เดือนถัดไปไม่ต้องกรอกใหม่ คนที่ยังไม่มีตำแหน่งจะไม่ถูกเลือกมาแก้</p>
   <div id="people-roles-grid"></div>
   <button id="people-roles-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+  <div class="row">
+    <button id="people-roles-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+  </div>
   <datalist id="role-options"></datalist>
 </section>
 
@@ -1054,6 +1102,7 @@ if (typeof module !== 'undefined' && module.exports) {
   const workingDaysHint = document.getElementById('working-days-hint');
   const peopleRolesMount = document.getElementById('people-roles-grid');
   const peopleRolesAddRowBtn = document.getElementById('people-roles-add-row-btn');
+  const peopleRolesResetBtn = document.getElementById('people-roles-reset-btn');
   const roleOptions = document.getElementById('role-options');
 
   const MAPPING_STORAGE_KEY = 'woTimesheetSummary.mappingText';
@@ -1464,7 +1513,11 @@ if (typeof module !== 'undefined' && module.exports) {
   const peopleRolesGrid = createGridEditor(peopleRolesMount, PEOPLE_ROLE_COLUMNS, peopleRolesAddRowBtn, 3, () => {
     saveRows(PEOPLE_ROLES_STORAGE_KEY, peopleRolesGrid.getRows());
   });
-  peopleRolesGrid.setRows(loadSavedRows(PEOPLE_ROLES_STORAGE_KEY) || []);
+  peopleRolesGrid.setRows(loadSavedRows(PEOPLE_ROLES_STORAGE_KEY) || DEFAULT_PEOPLE_ROLES.map(r => r.slice()));
+  peopleRolesResetBtn.addEventListener('click', () => {
+    peopleRolesGrid.setRows(DEFAULT_PEOPLE_ROLES.map(r => r.slice()));
+    saveRows(PEOPLE_ROLES_STORAGE_KEY, peopleRolesGrid.getRows());
+  });
 
   // Working days this month: auto-counted (Mon-Fri) from the month of an
   // uploaded sheet, otherwise from the current month; the user can overwrite

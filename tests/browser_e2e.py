@@ -405,6 +405,23 @@ def first_visit_loads_the_default_wo_mapping(page):
     expect(page.locator('#banners')).to_be_empty()
 
 
+def first_visit_loads_the_default_people_roles(page):
+    expect(grid_cell(page, 'people-roles-grid', 0, 0)).to_have_value('Person 01')
+    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Head of Innovation')
+    expect(grid_cell(page, 'people-roles-grid', 9, 0)).to_have_value('Person 10')
+    expect(grid_cell(page, 'people-roles-grid', 9, 1)).to_have_value('Developer')
+    expect(grid_cell(page, 'people-roles-grid', 36, 0)).to_have_value('Person 37')
+
+
+def people_roles_reset_restores_the_defaults(page):
+    grid_cell(page, 'people-roles-grid', 0, 1).fill('Developer')
+    page.click('#people-roles-reset-btn')
+    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Head of Innovation')
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Head of Innovation')
+
+
 def an_edited_mapping_replaces_the_defaults_after_a_reload(page):
     grid_cell(page, 'mapping-grid', 0, 2).fill('Renamed WO')
     page.reload()
@@ -492,6 +509,8 @@ TESTS = [
     ('uploading krungsri.xlsx fills the timesheet grid', upload_sample_xlsx_fills_the_grid),
     ('uploading a file that is not really .xlsx shows an error', upload_non_xlsx_shows_error),
     ('the first visit loads the default WO Mapping, ready to Run', first_visit_loads_the_default_wo_mapping),
+    ('the first visit loads the default People → Role list', first_visit_loads_the_default_people_roles),
+    ('คืนค่าเริ่มต้น on People → Role replaces the grid with the defaults', people_roles_reset_restores_the_defaults),
     ('an edited mapping replaces the defaults after a reload', an_edited_mapping_replaces_the_defaults_after_a_reload),
     ('mapping, people roles and working days survive a reload', mapping_roles_and_working_days_survive_a_reload),
     ('Clear empties the Mapping grid; a reload brings the defaults back', clear_mapping_empties_the_grid),
