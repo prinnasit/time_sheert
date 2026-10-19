@@ -118,8 +118,15 @@ def download(page, click_selector):
     return d.suggested_filename, path
 
 
-def setup(page, mapping, timesheet, people=None, working_days='20'):
+def paste_mapping(page, mapping):
+    # The grid starts with DEFAULT_WO_MAPPING; clear it so only the
+    # scenario's own WOs are in play.
+    page.click('#clear-mapping-btn')
     paste_into_grid(page, 'mapping-grid', tsv(mapping))
+
+
+def setup(page, mapping, timesheet, people=None, working_days='20'):
+    paste_mapping(page, mapping)
     paste_into_grid(page, 'timesheet-grid', tsv(timesheet))
     if people:
         paste_into_grid(page, 'people-roles-grid', tsv(people) + '\n')
@@ -155,13 +162,13 @@ def setup_over_80(page):
 # ---- Run + banners ---------------------------------------------------------
 
 def run_without_mapping_shows_error(page):
+    page.click('#clear-mapping-btn')
     page.click('#run-btn')
     expect(page.locator('#banners')).to_contain_text('กรุณาวางตาราง WO Mapping ก่อนกด Run')
 
 
 def run_without_timesheet_shows_error(page):
-    paste_into_grid(page, 'mapping-grid', tsv(MAPPING))
-    page.click('#run-btn')
+    page.click('#run-btn')  # the default mapping is enough to get past the mapping check
     expect(page.locator('#banners')).to_contain_text('กรุณาวางข้อมูล Timesheet ก่อนกด Run')
 
 
@@ -381,8 +388,32 @@ def upload_non_xlsx_shows_error(page):
 
 # ---- Persistence + small controls ------------------------------------------
 
+def first_visit_loads_the_default_wo_mapping(page):
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
+    expect(grid_cell(page, 'mapping-grid', 0, 1)).to_have_value('CAPEX')
+    expect(grid_cell(page, 'mapping-grid', 0, 2)).to_have_value('ONE Corporate MVP1')
+    expect(grid_cell(page, 'mapping-grid', 6, 1)).to_have_value('OPEX')         # WO-07
+    expect(grid_cell(page, 'mapping-grid', 13, 0)).to_have_value('Z02')
+    expect(grid_cell(page, 'mapping-grid', 13, 1)).to_have_value('Non Charge')
+    # The defaults are usable straight away: Run classifies them without warnings.
+    paste_into_grid(page, 'timesheet-grid', tsv([
+        timesheet_row('Ann', 'S1', 'WO-01', {1: 8}),
+        timesheet_row('Ann', 'S1', 'Z01', {2: 8}),
+    ]))
+    page.click('#run-btn')
+    expect(table1_cell(page, 'S1', 'WO-01')).to_have_text('1.00')
+    expect(page.locator('#banners')).to_be_empty()
+
+
+def an_edited_mapping_replaces_the_defaults_after_a_reload(page):
+    grid_cell(page, 'mapping-grid', 0, 2).fill('Renamed WO')
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    expect(grid_cell(page, 'mapping-grid', 0, 2)).to_have_value('Renamed WO')
+
+
 def mapping_roles_and_working_days_survive_a_reload(page):
-    paste_into_grid(page, 'mapping-grid', tsv(MAPPING))
+    paste_mapping(page, MAPPING)
     paste_into_grid(page, 'people-roles-grid', tsv(DEV1) + '\n')
     page.fill('#working-days-input', '18')
     page.reload()
@@ -394,13 +425,37 @@ def mapping_roles_and_working_days_survive_a_reload(page):
 
 
 def clear_mapping_empties_the_grid(page):
-    paste_into_grid(page, 'mapping-grid', tsv(MAPPING))
     page.click('#clear-mapping-btn')
     expect(page.locator('#mapping-status')).to_have_text('Cleared')
     expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('')
+    # An empty mapping is never useful, so a reload starts from the defaults.
     page.reload()
     page.wait_for_load_state('networkidle')
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('')
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
+
+
+def saved_but_empty_tables_fall_back_to_the_defaults(page):
+    # What an older visit can leave behind: a mapping with only its header
+    # row, and Role Ceilings with every row deleted.
+    page.evaluate('''() => {
+        localStorage.setItem('woTimesheetSummary.mappingText', 'WO No.\\tCategory\\tWO Name\\tRemaining (เดือนที่แล้ว)\\n\\t\\t\\t');
+        localStorage.setItem('woTimesheetSummary.roleCeilings', '[]');
+    }''')
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
+    expect(grid_cell(page, 'role-ceilings-grid', 0, 0)).to_have_value('Automated Tester')
+
+
+def mapping_reset_restores_the_defaults(page):
+    paste_mapping(page, MAPPING)
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('C1')
+    page.click('#mapping-reset-btn')
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
+    expect(grid_cell(page, 'mapping-grid', 4, 0)).to_have_value('WO-05')  # pasted rows are gone, not merged
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
 
 
 def role_ceilings_reset_restores_defaults(page):
@@ -436,8 +491,12 @@ TESTS = [
     ('Copy Table 1 flashes "✓ Copied"', copy_table_flashes_copied),
     ('uploading krungsri.xlsx fills the timesheet grid', upload_sample_xlsx_fills_the_grid),
     ('uploading a file that is not really .xlsx shows an error', upload_non_xlsx_shows_error),
+    ('the first visit loads the default WO Mapping, ready to Run', first_visit_loads_the_default_wo_mapping),
+    ('an edited mapping replaces the defaults after a reload', an_edited_mapping_replaces_the_defaults_after_a_reload),
     ('mapping, people roles and working days survive a reload', mapping_roles_and_working_days_survive_a_reload),
-    ('Clear empties the Mapping grid, also after a reload', clear_mapping_empties_the_grid),
+    ('Clear empties the Mapping grid; a reload brings the defaults back', clear_mapping_empties_the_grid),
+    ('a saved-but-empty Mapping / Role Ceilings falls back to the defaults', saved_but_empty_tables_fall_back_to_the_defaults),
+    ('คืนค่าเริ่มต้น on WO Mapping replaces the grid with the defaults', mapping_reset_restores_the_defaults),
     ('คืนค่าเริ่มต้น restores the default Role Ceilings', role_ceilings_reset_restores_defaults),
 ]
 

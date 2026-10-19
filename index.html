@@ -299,6 +299,25 @@ const DEFAULT_ROLE_CEILINGS = [
   ['System Analyst Manager', '4', '8', '8']
 ];
 
+// [WO No., Category, WO Name] — loaded into the WO Mapping grid whenever no
+// non-empty mapping is saved, and by its "คืนค่าเริ่มต้น" button.
+const DEFAULT_WO_MAPPING = [
+  ['WO-01', 'CAPEX', 'ONE Corporate MVP1'],
+  ['WO-02', 'CAPEX', 'WO title 01'],
+  ['WO-03', 'CAPEX', 'WO title 02'],
+  ['WO-04', 'CAPEX', 'WO title 03'],
+  ['WO-05', 'CAPEX', 'WO title 04'],
+  ['WO-06', 'CAPEX', 'WO title 05'],
+  ['WO-07', 'OPEX', 'WO title 06'],
+  ['WO-08', 'OPEX', 'WO title 07'],
+  ['WO-09', 'OPEX', 'WO title 08'],
+  ['WO-10', 'OPEX', 'WO title 09'],
+  ['WO-11', 'OPEX', 'WO title 07'],
+  ['WO-12', 'OPEX', 'WO title 11'],
+  ['Z01', 'Non Charge', 'Z01:Leave -> Leave / Day-Off'],
+  ['Z02', 'Non Charge', 'Z02:Train -> Training / Meeting']
+];
+
 const TIMESHEET_HEADER = ['Name-Surname', 'SQ', 'WO No.', 'WO Name', 'FTE/OS']
   .concat(Array.from({ length: 31 }, (_, i) => 'Day' + (i + 1)));
 
@@ -685,7 +704,7 @@ if (typeof module !== 'undefined' && module.exports) {
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
-    OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, TIMESHEET_HEADER, normalizeKey,
+    OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
     takeTimesheetRows, timesheetToAoa, diffCell,
     extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
@@ -921,6 +940,7 @@ if (typeof module !== 'undefined' && module.exports) {
   <textarea id="mapping-input" hidden></textarea>
   <div class="row">
     <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
+    <button id="mapping-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
     <span id="mapping-status" class="status-text"></span>
   </div>
 </section>
@@ -1008,6 +1028,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
   const mappingInput = document.getElementById('mapping-input');
   const clearMappingBtn = document.getElementById('clear-mapping-btn');
+  const mappingResetBtn = document.getElementById('mapping-reset-btn');
   const mappingStatus = document.getElementById('mapping-status');
   const timesheetInput = document.getElementById('timesheet-input');
   const xlsxUpload = document.getElementById('xlsx-upload');
@@ -1409,7 +1430,8 @@ if (typeof module !== 'undefined' && module.exports) {
   function loadSavedRows(key) {
     try {
       const raw = localStorage.getItem(key);
-      if (raw) { const v = JSON.parse(raw); if (Array.isArray(v)) return v; }
+      // An empty list counts as "nothing saved", so the caller's default applies.
+      if (raw) { const v = JSON.parse(raw); if (Array.isArray(v) && v.length > 0) return v; }
     } catch (e) { /* localStorage unavailable or corrupt, use defaults */ }
     return null;
   }
@@ -1479,10 +1501,17 @@ if (typeof module !== 'undefined' && module.exports) {
     }
   } catch (e) { /* ignore */ }
 
-  try {
-    const saved = localStorage.getItem(MAPPING_STORAGE_KEY);
-    if (saved) mappingInput.value = saved;
-  } catch (e) { /* localStorage unavailable, ignore */ }
+  // Start from DEFAULT_WO_MAPPING unless a mapping with at least one data
+  // row was saved — an empty table (never saved, Cleared, or every row
+  // deleted) is never useful, so it falls back to the defaults.
+  const defaultMappingText = [MAPPING_COLUMNS.map(c => c.label).join('\t')]
+    .concat(DEFAULT_WO_MAPPING.map(r => r.join('\t'))).join('\n');
+  function hasMappingRows(text) {
+    return String(text || '').split(/\r\n|\r|\n/).slice(1).some(line => line.replace(/\t/g, '').trim() !== '');
+  }
+  let savedMapping = null;
+  try { savedMapping = localStorage.getItem(MAPPING_STORAGE_KEY); } catch (e) { /* localStorage unavailable, ignore */ }
+  mappingInput.value = hasMappingRows(savedMapping) ? savedMapping : defaultMappingText;
   populateGridFromTSV(mappingGrid, mappingInput.value);
   if (rebalanceState) {
     try {
@@ -1502,6 +1531,15 @@ if (typeof module !== 'undefined' && module.exports) {
     try { localStorage.removeItem(MAPPING_STORAGE_KEY); } catch (e) { /* ignore */ }
     syncMappingRemainingDisplay();
     mappingStatus.textContent = 'Cleared';
+    setTimeout(() => { mappingStatus.textContent = ''; }, 1500);
+  });
+
+  mappingResetBtn.addEventListener('click', () => {
+    mappingInput.value = defaultMappingText;
+    populateGridFromTSV(mappingGrid, defaultMappingText);
+    try { localStorage.setItem(MAPPING_STORAGE_KEY, defaultMappingText); } catch (e) { /* ignore */ }
+    syncMappingRemainingDisplay();
+    mappingStatus.textContent = 'คืนค่าเริ่มต้นแล้ว';
     setTimeout(() => { mappingStatus.textContent = ''; }, 1500);
   });
 

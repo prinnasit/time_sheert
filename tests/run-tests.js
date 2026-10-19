@@ -196,6 +196,18 @@ test('table1ToRows and table2ToRows produce full-precision numeric rows plus tot
   assert.strictEqual(t2rows.rows[0][1], 1 / 3);
 });
 
+test('DEFAULT_WO_MAPPING parses cleanly with no skipped lines or duplicate WOs', () => {
+  assert.strictEqual(App.DEFAULT_WO_MAPPING.length, 14);
+  const text = App.DEFAULT_WO_MAPPING.map(r => r.join('\t')).join('\n');
+  const parsed = App.parseMappingText(text);
+  assert.deepStrictEqual(parsed.skippedLines, []);
+  assert.deepStrictEqual(parsed.duplicateWOs, []);
+  assert.strictEqual(Object.keys(parsed.map).length, 14);
+  assert.deepStrictEqual(parsed.map['WO-01'], { wo: 'WO-01', category: 'CAPEX', name: 'ONE Corporate MVP1' });
+  assert.strictEqual(parsed.map['WO-07'].category, 'OPEX');
+  assert.strictEqual(parsed.map['Z01'].category, 'NON_CHARGE');
+});
+
 process.on('exit', () => {
   if (failures > 0) {
     console.log(failures + ' failing test(s)');
