@@ -898,11 +898,34 @@ def role_ceilings_reset_restores_defaults(page):
     expect(grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3)).to_have_value('2')
 
 
+def switching_tabs_scrolls_back_to_the_top(page):
+    page.set_viewport_size({'width': 1280, 'height': 400})
+    show(page, 'timesheet')
+    page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+    assert page.evaluate('window.scrollY') > 0, 'the Timesheet tab should be tall enough to scroll'
+    show(page, 'results')
+    assert page.evaluate('window.scrollY') == 0, 'switching tab must scroll to the top'
+
+
+def run_from_the_bottom_shows_the_results_from_the_top(page):
+    page.set_viewport_size({'width': 1280, 'height': 500})
+    paste_mapping(page, MAPPING)
+    paste_into_grid(page, 'timesheet-grid', tsv(OVER_80))
+    fill(page, '#working-days-input', '20')
+    show(page, 'timesheet')
+    page.locator('#run-btn').scroll_into_view_if_needed()
+    click(page, '#run-btn')
+    expect(view_el(page, 'results')).to_be_visible()
+    expect(page.locator('#kpi-tiles')).to_be_in_viewport()
+
+
 TESTS = [
     ('the first visit shows only the Timesheet tab', first_visit_shows_only_the_timesheet_tab),
     ('tabs follow the URL hash across a reload and the Back button', tabs_follow_the_hash_across_reload_and_back),
     ('a successful Run jumps to ผลลัพธ์; a Run error stays on Timesheet', run_success_jumps_to_results_but_errors_stay),
     ('ผลลัพธ์ and แก้เกิน 80% show an empty state before any Run', empty_states_show_before_any_run),
+    ('switching tabs scrolls the window back to the top', switching_tabs_scrolls_back_to_the_top),
+    ('a Run from the bottom of Timesheet shows the results from the top', run_from_the_bottom_shows_the_results_from_the_top),
     ('ผลลัพธ์ shows 4 KPI tiles, an over-80% banner and a ไปแก้ link to tab 3', results_show_kpis_and_a_link_to_fix_over_80),
     ('the badge and banner clear once no squad is over 80%', badge_and_banner_clear_once_nothing_is_over_80),
     ('แก้เกิน 80% shows its empty state when no squad is over', no_squad_over_80_shows_the_rebalance_empty_state),

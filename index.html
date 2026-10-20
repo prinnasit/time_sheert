@@ -1012,6 +1012,7 @@ if (typeof module !== 'undefined' && module.exports) {
   th.cat-noncharge { background: var(--noncharge-bg); color: var(--noncharge-text); }
   th.cat-unmapped { background: var(--unmapped-bg); color: var(--unmapped-text); }
   .table-scroll tbody tr:nth-child(even):not(.summary-row):not(.remaining-row) { background: color-mix(in srgb, var(--surface-alt) 70%, transparent); }
+  .table-scroll tbody tr:hover:not(.summary-row):not(.remaining-row) { background: var(--surface-alt); }
   #table1-container, #table2-container, #changelog-container { max-height: 70vh; overflow: auto; }
   #table1-container thead, #table2-container thead, #changelog-container thead { position: sticky; top: 0; z-index: 1; }
   h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -.01em; }
@@ -2754,6 +2755,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // One view visible at a time, picked by location.hash — so a reload keeps
   // the tab and the browser's Back button moves between tabs.
   const VIEWS = ['timesheet', 'results', 'rebalance', 'settings'];
+  let shownView = null;
   const viewEls = Array.from(document.querySelectorAll('section.view'));
   const viewLinks = Array.from(document.querySelectorAll('[data-view-link]'));
   function currentViewFromHash() {
@@ -2761,6 +2763,8 @@ if (typeof module !== 'undefined' && module.exports) {
     return VIEWS.indexOf(name) >= 0 ? name : 'timesheet';
   }
   function showView(name) {
+    const changed = name !== shownView;
+    shownView = name;
     viewEls.forEach(el => { el.hidden = el.dataset.view !== name; });
     viewLinks.forEach(a => {
       const on = a.dataset.viewLink === name;
@@ -2768,6 +2772,9 @@ if (typeof module !== 'undefined' && module.exports) {
       if (on) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });
+    // The Run button sits at the bottom of a long tab; without this the new
+    // tab would open scrolled down, hiding its top.
+    if (changed) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }
   function goToView(name) {
     if (location.hash !== '#' + name) location.hash = name;
