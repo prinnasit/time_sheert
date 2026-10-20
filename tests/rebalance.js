@@ -74,6 +74,17 @@ test('timesheetToAoa writes a blank row, one header row, and numeric day cells',
   assert.strictEqual(aoa[2][2], '100'); // WO No. stays text
 });
 
+test('timesheetToTSV gives one tab-separated line per row, no header, every column kept', () => {
+  const row = ['A', 'S', 'W1', 'n', 'FTE', '8', '', '0.5'].concat(new Array(28).fill(''));
+  const tsv = App.timesheetToTSV([row, ['=cmd', 'S'].concat(new Array(34).fill(''))]);
+  const lines = tsv.split('\n');
+  assert.strictEqual(lines.length, 2);
+  assert.strictEqual(lines[0].split('\t').length, 36);
+  assert.deepStrictEqual(lines[0].split('\t').slice(0, 8), ['A', 'S', 'W1', 'n', 'FTE', '8', '', '0.5']);
+  assert.ok(!tsv.includes('Name-Surname'), 'must not include the header row');
+  assert.strictEqual(lines[1].split('\t')[0], "'=cmd"); // formula guard, same as Copy/CSV
+});
+
 test('diffCell shows "before → after" only when the 2-decimal display differs', () => {
   assert.deepStrictEqual(App.diffCell(10, 11.5), { changed: true, text: '10.00 → 11.50' });
   assert.deepStrictEqual(App.diffCell(5, 5), { changed: false, text: '5.00' });

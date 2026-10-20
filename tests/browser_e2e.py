@@ -303,6 +303,28 @@ def apply_survives_a_reload(page):
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('8')
 
 
+def copy_new_timesheet_puts_rows_on_the_clipboard(page):
+    page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    btn = page.locator('[data-rb-action="copy-new"]')
+    btn.click()
+    expect(btn).to_have_text('✓ Copied 2 แถว')
+    lines = page.evaluate('navigator.clipboard.readText()').split('\n')
+    assert len(lines) == 2, lines                            # data rows only, no header
+    cells = [line.split('\t') for line in lines]
+    assert cells[0][:3] == ['Dev1', 'S1', 'C1'], cells[0][:5]
+    assert cells[0][day_col(11)] == '2' and cells[1][day_col(11)] == '6', (cells[0][day_col(11)], cells[1][day_col(11)])
+    assert all(len(c) == 36 for c in cells), [len(c) for c in cells]
+
+
+def copy_new_timesheet_warns_about_added_rows(page):
+    setup_over_80(page)
+    page.locator('#rebalance-container select.rb-target').select_option('C2')  # Dev1 has no C2 row
+    page.click('[data-rb-action="apply"]')
+    expect(page.locator('#rebalance-container')).to_contain_text('มีแถวใหม่ 1 แถวต่อท้าย')
+
+
 def downloaded_new_timesheet_uploads_back_with_the_edits(page):
     setup_over_80(page)
     page.click('[data-rb-action="apply"]')
@@ -499,6 +521,8 @@ TESTS = [
     ('a person with no role is skipped with a reason and Apply is disabled', people_without_a_role_are_skipped_with_a_reason),
     ('a role missing from Role Ceilings is skipped with a reason', unknown_role_is_skipped_with_a_reason),
     ('an applied rebalance survives a page reload and can still be undone', apply_survives_a_reload),
+    ('Copy Timesheet ฉบับใหม่ puts the edited rows (no header) on the clipboard', copy_new_timesheet_puts_rows_on_the_clipboard),
+    ('after Apply adds a row, the card says how many rows were added', copy_new_timesheet_warns_about_added_rows),
     ('the downloaded new timesheet .xlsx uploads back with the edits', downloaded_new_timesheet_uploads_back_with_the_edits),
     ('Remaining (เดือนนี้) = last month − this month and syncs to the Mapping grid', remaining_this_month_is_last_month_minus_actual),
     ('ขึ้นเดือนใหม่ rolls this month\'s Remaining into last month', new_month_rolls_this_month_into_last_month),

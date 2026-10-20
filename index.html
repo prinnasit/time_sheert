@@ -449,6 +449,14 @@ function timesheetToAoa(rows) {
   return [[], TIMESHEET_HEADER].concat(body);
 }
 
+// Timesheet grid rows -> clipboard text for pasting straight over the data
+// rows of the original sheet: no header (the sheet's own header row holds
+// dates, which a "Day1..." header would overwrite), every column kept so
+// the paste stays aligned.
+function timesheetToTSV(rows) {
+  return rows.map(r => r.map(tsvEscape).join('\t')).join('\n');
+}
+
 function diffCell(before, after) {
   const b = formatMH(before), a = formatMH(after);
   return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
@@ -751,7 +759,7 @@ if (typeof module !== 'undefined' && module.exports) {
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
-    takeTimesheetRows, timesheetToAoa, diffCell,
+    takeTimesheetRows, timesheetToAoa, timesheetToTSV, diffCell,
     extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
   };
 }
@@ -1909,8 +1917,11 @@ if (typeof module !== 'undefined' && module.exports) {
       html += '</div>';
     }
     if (rebalanceState) {
-      html += '<p class="card-desc">แก้ Timesheet แล้ว — เก็บฉบับเดิมไว้ให้แล้ว</p>' +
-        '<div class="row"><button type="button" class="btn" data-rb-action="undo">Undo (คืนค่าเดิมทั้งหมด)</button>' +
+      const addedRows = timesheetGrid.getRows().length - rebalanceState.original.length;
+      html += '<p class="card-desc">แก้ Timesheet แล้ว — เก็บฉบับเดิมไว้ให้แล้ว · กด "Copy Timesheet ฉบับใหม่" แล้ววางใน Excel ที่ช่อง Name-Surname ของคนแรกได้เลย (ไม่มีหัวตาราง)</p>' +
+        (addedRows > 0 ? '<div class="banner warn">มีแถวใหม่ ' + addedRows + ' แถวต่อท้าย (คนที่ย้ายไป CAPEX WO ที่ยังไม่เคยลง) — ตอนวางใน Excel ให้เผื่อแถวว่างด้านล่างไว้ด้วย ไม่งั้นจะทับข้อมูลที่อยู่ใต้ตาราง</div>' : '') +
+        '<div class="row"><button type="button" class="btn btn-primary" data-rb-action="copy-new">Copy Timesheet ฉบับใหม่</button>' +
+        '<button type="button" class="btn" data-rb-action="undo">Undo (คืนค่าเดิมทั้งหมด)</button>' +
         '<button type="button" class="btn" data-rb-action="dl-original">ดาวน์โหลด Timesheet ฉบับเดิม (.xlsx)</button>' +
         '<button type="button" class="btn" data-rb-action="dl-new">ดาวน์โหลด Timesheet ฉบับใหม่ (.xlsx)</button></div>';
     }
@@ -1986,7 +1997,20 @@ if (typeof module !== 'undefined' && module.exports) {
     else if (action === 'continue') { rebalanceIncludeRound2 = true; renderRebalance(); }
     else if (action === 'dl-original' && rebalanceState) downloadTimesheetXlsx(rebalanceState.original, 'timesheet-original');
     else if (action === 'dl-new') downloadTimesheetXlsx(timesheetGrid.getRows(), 'timesheet-new');
+    else if (action === 'copy-new') copyTimesheet(timesheetGrid.getRows(), btn);
   });
+
+  // Plain text only (no HTML), so pasting into the original sheet keeps
+  // its own formatting instead of picking up ours.
+  function copyTimesheet(rows, btn) {
+    const text = timesheetToTSV(rows);
+    const done = () => flashButton(btn, '✓ Copied ' + rows.length + ' แถว');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
   rebalanceContainer.addEventListener('change', (e) => {
     if (!e.target.classList.contains('rb-target')) return;
     rebalanceOverrides[e.target.dataset.nameKey] = e.target.value;
