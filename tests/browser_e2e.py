@@ -320,6 +320,17 @@ def run_builds_tables_and_flags_high_opex(page):
     expect(page.locator('#rebalance-container')).to_contain_text('Dev1')
 
 
+def result_headers_carry_category_colours_and_the_thai_font_loads(page):
+    setup_over_80(page)
+    band = page.locator('#table1-container thead tr').first
+    expect(band.locator('th.cat-capex')).to_have_text('CAPEX')
+    expect(band.locator('th.cat-opex')).to_have_text('OPEX')
+    expect(page.locator('#table2-container thead th.cat-capex')).to_have_text('CAPEX %')
+    expect(page.locator('#table2-container thead th.cat-opex')).to_have_text('OPEX %')
+    font = page.evaluate('getComputedStyle(document.body).fontFamily')
+    assert font.startswith('"IBM Plex Sans Thai"'), font
+
+
 def exactly_80_percent_needs_no_rebalance(page):
     setup(page, MAPPING, [
         timesheet_row('Dev1', 'S1', 'C1', {1: 8, 2: 8}),
@@ -900,6 +911,7 @@ TESTS = [
     ('Run with an empty timesheet shows an error banner', run_without_timesheet_shows_error),
     ('Run warns about unmapped and duplicate WOs but still builds the tables', run_warns_about_unmapped_and_duplicate_wos),
     ('Run builds Table 1/2 and flags a squad over 80% OPEX', run_builds_tables_and_flags_high_opex),
+    ('result headers carry category colour classes and the Thai font is set', result_headers_carry_category_colours_and_the_thai_font_loads),
     ('a squad at exactly 80.00% OPEX gets no Rebalance card', exactly_80_percent_needs_no_rebalance),
     ('Rebalance Apply moves 2 MH to CAPEX, shows before→after, and Undo restores it', apply_then_undo_round_trips_the_timesheet),
     ('"ทำต่อ" runs round 2 when round 1 cannot get under 80%', continue_runs_round_2_when_round_1_is_not_enough),
