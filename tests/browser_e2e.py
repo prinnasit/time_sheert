@@ -57,6 +57,40 @@ def paste_into_grid(page, grid_id, text, row_index=0):
     }''', text)
 
 
+def view_el(page, name):
+    return page.locator('section.view[data-view="' + name + '"]')
+
+
+def show(page, name):
+    # Same as a user clicking the tab in the top nav.
+    page.locator('[data-view-link="' + name + '"]').click()
+    expect(view_el(page, name)).to_be_visible()
+
+
+def reveal(page, target):
+    # Only one tab (view) is visible at a time and Playwright can't click,
+    # type into or judge the visibility of elements in a hidden one — open
+    # the view the element lives in first. Elements outside any view (nav,
+    # banners) are left alone.
+    loc = page.locator(target) if isinstance(target, str) else target
+    name = loc.first.evaluate("el => { const v = el.closest('section.view'); return v ? v.dataset.view : ''; }")
+    if name and not view_el(page, name).is_visible():
+        show(page, name)
+    return loc
+
+
+def click(page, target):
+    reveal(page, target).first.click()
+
+
+def fill(page, target, value):
+    reveal(page, target).fill(value)
+
+
+def select(page, target, value):
+    reveal(page, target).select_option(value)
+
+
 def tsv(rows):
     return '\n'.join('\t'.join(r) for r in rows)
 
@@ -119,7 +153,7 @@ def draft_field(page, index, field):
 
 def download(page, click_selector):
     with page.expect_download() as info:
-        page.click(click_selector)
+        click(page, click_selector)
     d = info.value
     path = DOWNLOAD_DIR / d.suggested_filename
     d.save_as(path)
@@ -129,7 +163,7 @@ def download(page, click_selector):
 def paste_mapping(page, mapping):
     # The grid starts with DEFAULT_WO_MAPPING; clear it so only the
     # scenario's own WOs are in play.
-    page.click('#clear-mapping-btn')
+    click(page, '#clear-mapping-btn')
     paste_into_grid(page, 'mapping-grid', tsv(mapping))
 
 
@@ -138,8 +172,8 @@ def setup(page, mapping, timesheet, people=None, working_days='20'):
     paste_into_grid(page, 'timesheet-grid', tsv(timesheet))
     if people:
         paste_into_grid(page, 'people-roles-grid', tsv(people) + '\n')
-    page.fill('#working-days-input', working_days)  # ceilings are scaled by working days / 20
-    page.click('#run-btn')
+    fill(page, '#working-days-input', working_days)  # ceilings are scaled by working days / 20
+    click(page, '#run-btn')
 
 
 # ---- scenarios -------------------------------------------------------------
@@ -170,13 +204,13 @@ def setup_over_80(page):
 # ---- Run + banners ---------------------------------------------------------
 
 def run_without_mapping_shows_error(page):
-    page.click('#clear-mapping-btn')
-    page.click('#run-btn')
+    click(page, '#clear-mapping-btn')
+    click(page, '#run-btn')
     expect(page.locator('#banners')).to_contain_text('กรุณาวางตาราง WO Mapping ก่อนกด Run')
 
 
 def run_without_timesheet_shows_error(page):
-    page.click('#run-btn')  # the default mapping is enough to get past the mapping check
+    click(page, '#run-btn')  # the default mapping is enough to get past the mapping check
     expect(page.locator('#banners')).to_contain_text('กรุณาวางข้อมูล Timesheet ก่อนกด Run')
 
 
@@ -198,6 +232,7 @@ def run_builds_tables_and_flags_high_opex(page):
     expect(table1_cell(page, 'S1', 'O1')).to_have_text('9.00')
     expect(opex_cell(page, 'S1')).to_have_text('81.82%')
     expect(opex_cell(page, 'S1')).to_have_class(re.compile('pct-alert'))
+    reveal(page, '#rebalance-card')
     expect(page.locator('#rebalance-card')).to_be_visible()
     expect(page.locator('#rebalance-container')).to_contain_text('Dev1')
 
@@ -209,6 +244,7 @@ def exactly_80_percent_needs_no_rebalance(page):
     ], DEV1)
     expect(opex_cell(page, 'S1')).to_have_text('80.00%')
     expect(opex_cell(page, 'S1')).not_to_have_class(re.compile('pct-alert'))
+    reveal(page, '#rebalance-card')
     expect(page.locator('#rebalance-card')).to_be_hidden()
 
 
@@ -220,7 +256,7 @@ def apply_then_undo_round_trips_the_timesheet(page):
     capex_day11 = grid_cell(page, 'timesheet-grid', 0, day_col(11))
     expect(opex_day11).to_have_value('8')
 
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(opex_day11).to_have_value('6')
     expect(capex_day11).to_have_value('2')
     expect(opex_cell(page, 'S1')).to_have_text('79.55%')
@@ -235,11 +271,12 @@ def apply_then_undo_round_trips_the_timesheet(page):
     expect(log.nth(0).locator('td')).to_have_text(['Dev1', 'S1', 'C1', '11', '', '2', 'Rebalance'])
     expect(log.nth(1).locator('td')).to_have_text(['Dev1', 'S1', 'O1', '11', '8', '6', 'Rebalance'])
 
-    page.click('[data-rb-action="undo"]')
+    click(page, '[data-rb-action="undo"]')
     expect(opex_day11).to_have_value('8')
     expect(capex_day11).to_have_value('')
     expect(opex_cell(page, 'S1')).to_have_text('81.82%')
     expect(table1_cell(page, 'S1', 'C1')).to_have_text('2.00')
+    reveal(page, '#changelog-card')
     expect(page.locator('#changelog-card')).to_be_hidden()
 
 
@@ -247,13 +284,14 @@ def continue_runs_round_2_when_round_1_is_not_enough(page):
     setup(page, MAPPING, NEEDS_ROUND_2, [['Dev4', 'Developer']])
     rebalance = page.locator('#rebalance-container')
     expect(rebalance).to_contain_text('รอบที่ 1')
+    reveal(page, '[data-rb-action="continue"]')
     expect(page.locator('[data-rb-action="continue"]')).to_be_visible()
 
-    page.click('[data-rb-action="continue"]')
+    click(page, '[data-rb-action="continue"]')
     expect(page.locator('[data-rb-action="continue"]')).to_have_count(0)
     expect(page.locator('#rb-draft-preview')).to_contain_text('94.74% → 78.95%')
 
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(opex_cell(page, 'S1')).to_have_text('78.95%')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(4))).to_have_value('')   # 2 MH moved out
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(3))).to_have_value('7')  # round 2's 1 MH
@@ -263,22 +301,25 @@ def continue_runs_round_2_when_round_1_is_not_enough(page):
 
 def apply_without_continue_only_does_round_1(page):
     setup(page, MAPPING, NEEDS_ROUND_2, [['Dev4', 'Developer']])
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(opex_cell(page, 'S1')).to_have_text('84.21%')
     expect(opex_cell(page, 'S1')).to_have_class(re.compile('pct-alert'))
     # Still over 80%, so the card offers round 2 again plus Undo.
+    reveal(page, '[data-rb-action="continue"]')
     expect(page.locator('[data-rb-action="continue"]')).to_be_visible()
+    reveal(page, '[data-rb-action="undo"]')
     expect(page.locator('[data-rb-action="undo"]')).to_be_visible()
 
 
 def target_wo_dropdown_redirects_the_move(page):
     setup_over_80(page)
     expect(draft_field(page, 0, 'toWoKey')).to_have_value('C1')  # Dev1's own CAPEX WO comes first
-    draft_field(page, 0, 'toWoKey').select_option('C2')          # a CAPEX WO Dev1 has no row for yet
+    select(page, draft_field(page, 0, 'toWoKey'), 'C2')          # a CAPEX WO Dev1 has no row for yet
     expect(draft_field(page, 0, 'toWoKey')).to_have_value('C2')
 
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(grid_cell(page, 'timesheet-grid', 0, day_col(11))).to_have_value('')  # C1 untouched
+    reveal(page, '#changelog-card')
     expect(page.locator('#changelog-card')).to_be_visible()  # Apply has finished re-rendering
     new_row = grid_row_where(page, 'timesheet-grid', 2, 'C2')
     expect(new_row.locator('input').nth(0)).to_have_value('Dev1')
@@ -311,10 +352,10 @@ def draft_lists_the_plan_per_day_with_a_preview(page):
 def editing_draft_mh_updates_the_preview_and_what_apply_does(page):
     setup_over_80(page)
     mh = draft_field(page, 0, 'mh')
-    mh.fill('4')
+    fill(page, mh, '4')
     expect(page.locator('#rb-draft-preview')).to_contain_text('81.82% → 77.27%')  # 68 / 88
     assert mh.evaluate('el => el === document.activeElement'), 'typing MH must not re-render the draft table'
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('4')
     expect(grid_cell(page, 'timesheet-grid', 0, day_col(11))).to_have_value('4')
     expect(page.locator('#changelog-container')).not_to_contain_text('แก้เอง')
@@ -322,25 +363,25 @@ def editing_draft_mh_updates_the_preview_and_what_apply_does(page):
 
 def editing_draft_day_moves_a_different_day(page):
     setup_over_80(page)
-    draft_field(page, 0, 'day').select_option('10')
-    page.click('[data-rb-action="apply"]')
+    select(page, draft_field(page, 0, 'day'), '10')
+    click(page, '[data-rb-action="apply"]')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).to_have_value('6')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('8')
 
 
 def draft_mh_over_the_day_is_an_error_and_blocks_apply(page):
     setup_over_80(page)
-    draft_field(page, 0, 'mh').fill('9')
+    fill(page, draft_field(page, 0, 'mh'), '9')
     expect(draft_rows(page).nth(0)).to_have_class(re.compile('rb-row-error'))
     expect(draft_rows(page).nth(0).locator('td.rb-row-msg')).to_contain_text('วันที่ 11 ของ O1 เหลือให้ย้ายได้ 8 MH')
     expect(page.locator('[data-rb-action="apply"]')).to_be_disabled()
-    draft_field(page, 0, 'mh').fill('2')
+    fill(page, draft_field(page, 0, 'mh'), '2')
     expect(page.locator('[data-rb-action="apply"]')).to_be_enabled()
 
 
 def deleting_the_only_draft_row_disables_apply(page):
     setup_over_80(page)
-    page.click('[data-rb-action="draft-del"]')
+    click(page, '[data-rb-action="draft-del"]')
     expect(draft_rows(page)).to_have_count(0)
     expect(page.locator('[data-rb-action="apply"]')).to_be_disabled()
     expect(page.locator('#rb-draft-preview')).to_be_empty()
@@ -348,7 +389,7 @@ def deleting_the_only_draft_row_disables_apply(page):
 
 def adding_a_draft_row_uses_sensible_defaults(page):
     setup_over_80(page)
-    page.click('[data-rb-action="draft-add"]')
+    click(page, '[data-rb-action="draft-add"]')
     expect(draft_rows(page)).to_have_count(2)
     expect(draft_field(page, 1, 'person')).to_have_value('dev1|S1')
     expect(draft_field(page, 1, 'fromWoKey')).to_have_value('O1')
@@ -363,9 +404,9 @@ def changing_the_person_resets_the_row_defaults(page):
         timesheet_row('Ann', 'S1', 'C2', {1: 8}),
         timesheet_row('Ann', 'S1', 'O1', {20: 8, 21: 8, 22: 8, 23: 8}),
     ], DEV1)
-    page.click('[data-rb-action="draft-add"]')
+    click(page, '[data-rb-action="draft-add"]')
     last = draft_rows(page).count() - 1
-    draft_field(page, last, 'person').select_option('ann|S1')
+    select(page, draft_field(page, last, 'person'), 'ann|S1')
     expect(draft_field(page, last, 'fromWoKey')).to_have_value('O1')
     expect(draft_field(page, last, 'toWoKey')).to_have_value('C2')
     expect(draft_field(page, last, 'day')).to_have_value('23')
@@ -374,39 +415,39 @@ def changing_the_person_resets_the_row_defaults(page):
 
 def draft_ceiling_warning_does_not_block_apply(page):
     setup(page, MAPPING, OVER_80, DEV1, working_days='1')  # CAPEX ceiling 16 MD x 1/20 = 0.8 MD
-    page.click('[data-rb-action="draft-add"]')
+    click(page, '[data-rb-action="draft-add"]')
     expect(draft_rows(page).last.locator('td.rb-row-msg')).to_contain_text('เกินเพดาน')
     expect(page.locator('[data-rb-action="apply"]')).to_be_enabled()
 
 
 def recalc_discards_draft_edits(page):
     setup_over_80(page)
-    draft_field(page, 0, 'mh').fill('4')
+    fill(page, draft_field(page, 0, 'mh'), '4')
     expect(page.locator('#rb-draft-preview')).to_contain_text('81.82% → 77.27%')
-    page.click('[data-rb-action="recalc"]')
+    click(page, '[data-rb-action="recalc"]')
     expect(draft_field(page, 0, 'mh')).to_have_value('2')
 
 
 def apply_survives_a_reload(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('6')
     page.reload()
     page.wait_for_load_state('networkidle')
     # The edited timesheet and the saved original both come back from
     # localStorage, so Undo must still be reachable after a reload.
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('6')
-    page.click('#run-btn')
-    page.click('[data-rb-action="undo"]')
+    click(page, '#run-btn')
+    click(page, '[data-rb-action="undo"]')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('8')
 
 
 def copy_new_timesheet_puts_rows_on_the_clipboard(page):
     page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     btn = page.locator('[data-rb-action="copy-new"]')
-    btn.click()
+    click(page, btn)
     expect(btn).to_have_text('✓ Copied 2 แถว')
     lines = page.evaluate('navigator.clipboard.readText()').splitlines()  # Windows' clipboard turns \n into \r\n
     assert len(lines) == 2, lines                            # data rows only, no header
@@ -424,25 +465,25 @@ def apply_shows_a_capex_opex_summary_per_squad_in_the_card(page):
     page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
     setup_over_80(page)
     expect(page.locator('#rebalance-container table.rb-summary')).to_have_count(0)  # only after Apply
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     cells = summary_row(page, 'S1').locator('td')
     expect(cells).to_have_text(['S1', '18.18% → 20.45%', '81.82% → 79.55%'])
     expect(cells.nth(2)).not_to_have_class(re.compile('pct-alert'))
 
     btn = page.locator('[data-rb-action="copy-summary"]')
-    btn.click()
+    click(page, btn)
     expect(btn).to_have_text('✓ Copied')
     lines = page.evaluate('navigator.clipboard.readText()').splitlines()
     assert lines ==['Squad\tCAPEX % (เดิม)\tCAPEX % (ใหม่)\tOPEX % (เดิม)\tOPEX % (ใหม่)',
                      'S1\t18.18%\t20.45%\t81.82%\t79.55%'], lines
 
-    page.click('[data-rb-action="undo"]')
+    click(page, '[data-rb-action="undo"]')
     expect(page.locator('#rebalance-container table.rb-summary')).to_have_count(0)
 
 
 def summary_flags_a_squad_still_over_80(page):
     setup(page, MAPPING, NEEDS_ROUND_2, [['Dev4', 'Developer']])
-    page.click('[data-rb-action="apply"]')  # round 1 only -> 84.21%
+    click(page, '[data-rb-action="apply"]')  # round 1 only -> 84.21%
     cell = summary_row(page, 'S1').locator('td').nth(2)
     expect(cell).to_have_text('94.74% → 84.21%')
     expect(cell).to_have_class(re.compile('pct-alert'))
@@ -450,17 +491,17 @@ def summary_flags_a_squad_still_over_80(page):
 
 def copy_new_timesheet_warns_about_added_rows(page):
     setup_over_80(page)
-    draft_field(page, 0, 'toWoKey').select_option('C2')  # Dev1 has no C2 row
-    page.click('[data-rb-action="apply"]')
+    select(page, draft_field(page, 0, 'toWoKey'), 'C2')  # Dev1 has no C2 row
+    click(page, '[data-rb-action="apply"]')
     expect(page.locator('#rebalance-container')).to_contain_text('มีแถวใหม่ 1 แถวต่อท้าย')
 
 
 def after_apply_editing_a_cell_refreshes_tables_without_run(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(opex_cell(page, 'S1')).to_have_text('79.55%')
-    grid_cell(page, 'timesheet-grid', 1, day_col(10)).fill('7')  # O1 day 10: 8 -> 7
-    grid_cell(page, 'timesheet-grid', 0, day_col(10)).fill('1')  # C1 day 10: blank -> 1
+    fill(page, grid_cell(page, 'timesheet-grid', 1, day_col(10)), '7')  # O1 day 10: 8 -> 7
+    fill(page, grid_cell(page, 'timesheet-grid', 0, day_col(10)), '1')  # C1 day 10: blank -> 1
     expect(opex_cell(page, 'S1')).to_have_text('78.41%')         # 69 / 88, no Run click
     expect(summary_row(page, 'S1').locator('td').nth(2)).to_have_text('81.82% → 78.41%')
     log = page.locator('#changelog-container tbody tr')
@@ -473,32 +514,33 @@ def after_apply_editing_a_cell_refreshes_tables_without_run(page):
 
 def after_apply_changed_cells_are_highlighted_with_the_old_value(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     opex11 = grid_cell(page, 'timesheet-grid', 1, day_col(11))
     capex11 = grid_cell(page, 'timesheet-grid', 0, day_col(11))
     expect(opex11).to_have_class(re.compile('cell-changed'))
     expect(opex11).to_have_attribute('title', 'เดิม: 8')
     expect(capex11).to_have_attribute('title', 'เดิม: ว่าง')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).not_to_have_class(re.compile('cell-changed'))
-    opex11.fill('8')   # put the original values back by hand
-    capex11.fill('')
+    fill(page, opex11, '8')   # put the original values back by hand
+    fill(page, capex11, '')
     expect(opex11).not_to_have_class(re.compile('cell-changed'))
+    reveal(page, '#changelog-card')
     expect(page.locator('#changelog-card')).to_be_hidden()
     expect(opex_cell(page, 'S1')).to_have_text('81.82%')
 
 
 def editing_over_a_rebalance_cell_counts_as_manual(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
-    grid_cell(page, 'timesheet-grid', 1, day_col(11)).fill('5')
+    click(page, '[data-rb-action="apply"]')
+    fill(page, grid_cell(page, 'timesheet-grid', 1, day_col(11)), '5')
     expect(page.locator('#changelog-container tbody tr').nth(1).locator('td')).to_have_text(['Dev1', 'S1', 'O1', '11', '8', '5', 'แก้เอง'])
 
 
 def typing_in_the_timesheet_after_apply_keeps_focus(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     cell = grid_cell(page, 'timesheet-grid', 1, day_col(10))
-    cell.click()
+    click(page, cell)
     page.keyboard.press('Control+A')
     page.keyboard.type('7')
     expect(opex_cell(page, 'S1')).to_have_text('79.31%')  # 69 / 87, after the auto refresh
@@ -507,8 +549,8 @@ def typing_in_the_timesheet_after_apply_keeps_focus(page):
 
 def manual_edits_survive_a_reload(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
-    grid_cell(page, 'timesheet-grid', 1, day_col(10)).fill('7')
+    click(page, '[data-rb-action="apply"]')
+    fill(page, grid_cell(page, 'timesheet-grid', 1, day_col(10)), '7')
     expect(page.locator('#changelog-container')).to_contain_text('แก้เอง')
     page.reload()
     page.wait_for_load_state('networkidle')
@@ -519,28 +561,29 @@ def manual_edits_survive_a_reload(page):
 
 def undo_after_manual_edits_restores_the_original(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
-    grid_cell(page, 'timesheet-grid', 1, day_col(10)).fill('7')
+    click(page, '[data-rb-action="apply"]')
+    fill(page, grid_cell(page, 'timesheet-grid', 1, day_col(10)), '7')
     expect(opex_cell(page, 'S1')).to_have_text('79.31%')
-    page.click('[data-rb-action="undo"]')
+    click(page, '[data-rb-action="undo"]')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).to_have_value('8')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('8')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).not_to_have_class(re.compile('cell-changed'))
+    reveal(page, '#changelog-card')
     expect(page.locator('#changelog-card')).to_be_hidden()
 
 
 def before_apply_editing_waits_for_run(page):
     setup_over_80(page)
-    grid_cell(page, 'timesheet-grid', 1, day_col(3)).fill('0')
+    fill(page, grid_cell(page, 'timesheet-grid', 1, day_col(3)), '0')
     page.wait_for_timeout(700)  # longer than the 300 ms auto refresh would take
     expect(opex_cell(page, 'S1')).to_have_text('81.82%')
-    page.click('#run-btn')
+    click(page, '#run-btn')
     expect(opex_cell(page, 'S1')).to_have_text('80.00%')  # 64 / 80
 
 
 def downloaded_new_timesheet_uploads_back_with_the_edits(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     name, path = download(page, '[data-rb-action="dl-new"]')
     assert re.fullmatch(r'timesheet-new_\d{4}-\d{2}-\d{2}\.xlsx', name), name
     orig_name, _ = download(page, '[data-rb-action="dl-original"]')
@@ -552,7 +595,9 @@ def downloaded_new_timesheet_uploads_back_with_the_edits(page):
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('6')
     expect(grid_cell(page, 'timesheet-grid', 0, day_col(11))).to_have_value('2')
     # Uploading a new timesheet resets the rebalance session.
+    reveal(page, '#rebalance-card')
     expect(page.locator('#rebalance-card')).to_be_hidden()
+    reveal(page, '#changelog-card')
     expect(page.locator('#changelog-card')).to_be_hidden()
 
 
@@ -560,10 +605,10 @@ def downloaded_new_timesheet_uploads_back_with_the_edits(page):
 
 def editing_back_over_80_after_a_clean_apply_rebuilds_the_draft(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(opex_cell(page, 'S1')).to_have_text('79.55%')
-    grid_cell(page, 'timesheet-grid', 0, day_col(11)).fill('')   # put the original values back by hand
-    grid_cell(page, 'timesheet-grid', 1, day_col(11)).fill('8')
+    fill(page, grid_cell(page, 'timesheet-grid', 0, day_col(11)), '')   # put the original values back by hand
+    fill(page, grid_cell(page, 'timesheet-grid', 1, day_col(11)), '8')
     expect(opex_cell(page, 'S1')).to_have_text('81.82%')
     expect(draft_rows(page)).to_have_count(1)
     expect(page.locator('[data-rb-action="apply"]')).to_be_enabled()
@@ -571,15 +616,15 @@ def editing_back_over_80_after_a_clean_apply_rebuilds_the_draft(page):
 
 def new_month_clears_the_yellow_changed_cells(page):
     setup_over_80(page)
-    page.click('[data-rb-action="apply"]')
+    click(page, '[data-rb-action="apply"]')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_class(re.compile('cell-changed'))
-    page.click('#new-month-btn')
+    click(page, '#new-month-btn')
     expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).not_to_have_class(re.compile('cell-changed'))
 
 
 def remaining_this_month_is_last_month_minus_actual(page):
     setup_over_80(page)
-    page.locator('#table1-container .remaining-input[data-wo-key="C1"]').fill('10')
+    fill(page, '#table1-container .remaining-input[data-wo-key="C1"]', '10')
     expect(page.locator('#table1-container .remaining-computed[data-wo-key="C1"]')).to_have_text('8.00')  # 10 - 2.00
     # The same value shows up in the Mapping grid's Remaining column (row 1 = C1).
     expect(grid_cell(page, 'mapping-grid', 0, 3)).to_have_value('10')
@@ -587,22 +632,22 @@ def remaining_this_month_is_last_month_minus_actual(page):
 
 def new_month_rolls_this_month_into_last_month(page):
     setup_over_80(page)
-    page.locator('#table1-container .remaining-input[data-wo-key="C1"]').fill('10')
-    page.click('#new-month-btn')
+    fill(page, '#table1-container .remaining-input[data-wo-key="C1"]', '10')
+    click(page, '#new-month-btn')
     expect(page.locator('#new-month-status')).to_contain_text('อัปเดตแล้ว')
     expect(page.locator('#table1-container .remaining-input[data-wo-key="C1"]')).to_have_value('8')
     expect(page.locator('#table1-container .remaining-computed[data-wo-key="C1"]')).to_have_text('6.00')
 
 
 def new_month_before_run_shows_error(page):
-    page.click('#new-month-btn')
+    click(page, '#new-month-btn')
     expect(page.locator('#banners')).to_contain_text('กรุณากด Run ก่อนขึ้นเดือนใหม่')
 
 
 # ---- Export ----------------------------------------------------------------
 
 def download_csv_before_run_shows_error(page):
-    page.click('#download-table1-btn')
+    click(page, '#download-table1-btn')
     expect(page.locator('#banners')).to_contain_text('กรุณากด Run ก่อน Download')
 
 
@@ -623,7 +668,7 @@ def download_table_csvs(page):
 
 def copy_table_flashes_copied(page):
     setup_over_80(page)
-    page.click('#copy-table1-btn')
+    click(page, '#copy-table1-btn')
     expect(page.locator('#copy-table1-btn')).to_have_text('✓ Copied')
 
 
@@ -654,7 +699,7 @@ def first_visit_loads_the_default_wo_mapping(page):
         timesheet_row('Ann', 'S1', 'WO-01', {1: 8}),
         timesheet_row('Ann', 'S1', 'Z01', {2: 8}),
     ]))
-    page.click('#run-btn')
+    click(page, '#run-btn')
     expect(table1_cell(page, 'S1', 'WO-01')).to_have_text('1.00')
     expect(page.locator('#banners')).to_be_empty()
 
@@ -668,8 +713,8 @@ def first_visit_loads_the_default_people_roles(page):
 
 
 def people_roles_reset_restores_the_defaults(page):
-    grid_cell(page, 'people-roles-grid', 0, 1).fill('Developer')
-    page.click('#people-roles-reset-btn')
+    fill(page, grid_cell(page, 'people-roles-grid', 0, 1), 'Developer')
+    click(page, '#people-roles-reset-btn')
     expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Head of Innovation')
     page.reload()
     page.wait_for_load_state('networkidle')
@@ -677,7 +722,7 @@ def people_roles_reset_restores_the_defaults(page):
 
 
 def an_edited_mapping_replaces_the_defaults_after_a_reload(page):
-    grid_cell(page, 'mapping-grid', 0, 2).fill('Renamed WO')
+    fill(page, grid_cell(page, 'mapping-grid', 0, 2), 'Renamed WO')
     page.reload()
     page.wait_for_load_state('networkidle')
     expect(grid_cell(page, 'mapping-grid', 0, 2)).to_have_value('Renamed WO')
@@ -686,7 +731,7 @@ def an_edited_mapping_replaces_the_defaults_after_a_reload(page):
 def mapping_roles_and_working_days_survive_a_reload(page):
     paste_mapping(page, MAPPING)
     paste_into_grid(page, 'people-roles-grid', tsv(DEV1) + '\n')
-    page.fill('#working-days-input', '18')
+    fill(page, '#working-days-input', '18')
     page.reload()
     page.wait_for_load_state('networkidle')
     expect(grid_cell(page, 'mapping-grid', 1, 0)).to_have_value('C2')
@@ -696,7 +741,7 @@ def mapping_roles_and_working_days_survive_a_reload(page):
 
 
 def clear_mapping_empties_the_grid(page):
-    page.click('#clear-mapping-btn')
+    click(page, '#clear-mapping-btn')
     expect(page.locator('#mapping-status')).to_have_text('Cleared')
     expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('')
     # An empty mapping is never useful, so a reload starts from the defaults.
@@ -721,7 +766,7 @@ def saved_but_empty_tables_fall_back_to_the_defaults(page):
 def mapping_reset_restores_the_defaults(page):
     paste_mapping(page, MAPPING)
     expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('C1')
-    page.click('#mapping-reset-btn')
+    click(page, '#mapping-reset-btn')
     expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
     expect(grid_cell(page, 'mapping-grid', 4, 0)).to_have_value('WO-05')  # pasted rows are gone, not merged
     page.reload()
@@ -730,13 +775,13 @@ def mapping_reset_restores_the_defaults(page):
 
 
 def role_ceilings_reset_restores_defaults(page):
-    grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3).fill('99')
+    fill(page, grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3), '99')
     page.reload()
     page.wait_for_load_state('networkidle')
     # The edit is remembered across reloads...
     expect(grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3)).to_have_value('99')
     # ...until คืนค่าเริ่มต้น puts the default (Developer OPEX = 2 MD) back.
-    page.click('#role-ceilings-reset-btn')
+    click(page, '#role-ceilings-reset-btn')
     expect(grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3)).to_have_value('2')
 
 
