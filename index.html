@@ -457,6 +457,20 @@ function timesheetToTSV(rows) {
   return rows.map(r => r.map(tsvEscape).join('\t')).join('\n');
 }
 
+// Per-squad CAPEX/OPEX % before and after a rebalance, in the after
+// table's squad order; null where a squad has no "before" figure.
+function squadSummary(afterTable2, beforeTable2) {
+  const before = {};
+  (beforeTable2 || []).forEach(r => { before[r.sq] = r; });
+  return {
+    header: ['Squad', 'CAPEX % (เดิม)', 'CAPEX % (ใหม่)', 'OPEX % (เดิม)', 'OPEX % (ใหม่)'],
+    rows: afterTable2.map(r => {
+      const b = before[r.sq] || {};
+      return [r.sq, b.capexPct == null ? null : b.capexPct, r.capexPct, b.opexPct == null ? null : b.opexPct, r.opexPct];
+    })
+  };
+}
+
 function diffCell(before, after) {
   const b = formatMH(before), a = formatMH(after);
   return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
@@ -759,7 +773,7 @@ if (typeof module !== 'undefined' && module.exports) {
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
-    takeTimesheetRows, timesheetToAoa, timesheetToTSV, diffCell,
+    takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, diffCell,
     extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
   };
 }
@@ -1924,8 +1938,29 @@ if (typeof module !== 'undefined' && module.exports) {
         '<button type="button" class="btn" data-rb-action="undo">Undo (คืนค่าเดิมทั้งหมด)</button>' +
         '<button type="button" class="btn" data-rb-action="dl-original">ดาวน์โหลด Timesheet ฉบับเดิม (.xlsx)</button>' +
         '<button type="button" class="btn" data-rb-action="dl-new">ดาวน์โหลด Timesheet ฉบับใหม่ (.xlsx)</button></div>';
+      if (lastTable2 && lastBefore) html += renderSquadSummary(squadSummary(lastTable2, lastBefore.table2));
     }
     rebalanceContainer.innerHTML = html;
+  }
+
+  // "เดิม → ใหม่" when the 2-decimal display changed, else just the value.
+  function pctDiff(before, after) {
+    const b = formatPct(before), a = formatPct(after);
+    return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
+  }
+
+  function renderSquadSummary(summary) {
+    let html = '<p class="card-desc" style="margin-top: 16px;">CAPEX / OPEX % ต่อ squad หลังแก้ (เดิม → ใหม่)</p>' +
+      '<div class="table-scroll"><table class="rb-summary"><thead><tr><th>Squad</th><th>CAPEX %</th><th>OPEX %</th></tr></thead><tbody>';
+    summary.rows.forEach(([sq, capexBefore, capexAfter, opexBefore, opexAfter]) => {
+      const c = pctDiff(capexBefore, capexAfter), o = pctDiff(opexBefore, opexAfter);
+      const opexHigh = opexAfter != null && opexAfter > OPEX_PCT_ALERT_THRESHOLD;
+      html += '<tr><td>' + escapeHtml(sq) + '</td>' +
+        '<td' + (c.changed ? ' class="cell-changed"' : '') + '>' + c.text + '</td>' +
+        '<td' + (opexHigh ? ' class="pct-alert"' : (o.changed ? ' class="cell-changed"' : '')) + '>' + o.text + '</td></tr>';
+    });
+    return html + '</tbody></table></div>' +
+      '<div class="row"><button type="button" class="btn" data-rb-action="copy-summary">Copy สรุป CAPEX/OPEX</button></div>';
   }
 
   function applyRebalance() {
@@ -1997,14 +2032,20 @@ if (typeof module !== 'undefined' && module.exports) {
     else if (action === 'continue') { rebalanceIncludeRound2 = true; renderRebalance(); }
     else if (action === 'dl-original' && rebalanceState) downloadTimesheetXlsx(rebalanceState.original, 'timesheet-original');
     else if (action === 'dl-new') downloadTimesheetXlsx(timesheetGrid.getRows(), 'timesheet-new');
-    else if (action === 'copy-new') copyTimesheet(timesheetGrid.getRows(), btn);
+    else if (action === 'copy-new') {
+      const rows = timesheetGrid.getRows();
+      copyPlainText(timesheetToTSV(rows), btn, '✓ Copied ' + rows.length + ' แถว');
+    } else if (action === 'copy-summary' && lastTable2 && lastBefore) {
+      const s = squadSummary(lastTable2, lastBefore.table2);
+      const pct = p => (p == null ? '' : formatPct(p));
+      copyPlainText(toTSV(s.header, s.rows.map(r => [r[0]].concat(r.slice(1).map(pct)))), btn, '✓ Copied');
+    }
   });
 
   // Plain text only (no HTML), so pasting into the original sheet keeps
   // its own formatting instead of picking up ours.
-  function copyTimesheet(rows, btn) {
-    const text = timesheetToTSV(rows);
-    const done = () => flashButton(btn, '✓ Copied ' + rows.length + ' แถว');
+  function copyPlainText(text, btn, doneLabel) {
+    const done = () => flashButton(btn, doneLabel);
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
     } else {

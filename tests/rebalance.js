@@ -85,6 +85,15 @@ test('timesheetToTSV gives one tab-separated line per row, no header, every colu
   assert.strictEqual(lines[1].split('\t')[0], "'=cmd"); // formula guard, same as Copy/CSV
 });
 
+test('squadSummary pairs each squad\'s CAPEX/OPEX % before and after, in the after table\'s order', () => {
+  const after = [{ sq: 'S1', capexPct: 0.2, opexPct: 0.8 }, { sq: 'S2', capexPct: 0.5, opexPct: 0.5 }];
+  const before = [{ sq: 'S2', capexPct: 0.5, opexPct: 0.5 }, { sq: 'S1', capexPct: 0.1, opexPct: 0.9 }];
+  const s = App.squadSummary(after, before);
+  assert.deepStrictEqual(s.header, ['Squad', 'CAPEX % (เดิม)', 'CAPEX % (ใหม่)', 'OPEX % (เดิม)', 'OPEX % (ใหม่)']);
+  assert.deepStrictEqual(s.rows, [['S1', 0.1, 0.2, 0.9, 0.8], ['S2', 0.5, 0.5, 0.5, 0.5]]);
+  assert.deepStrictEqual(App.squadSummary([{ sq: 'S3', capexPct: 1, opexPct: 0 }], []).rows, [['S3', null, 1, null, 0]]);
+});
+
 test('diffCell shows "before → after" only when the 2-decimal display differs', () => {
   assert.deepStrictEqual(App.diffCell(10, 11.5), { changed: true, text: '10.00 → 11.50' });
   assert.deepStrictEqual(App.diffCell(5, 5), { changed: false, text: '5.00' });

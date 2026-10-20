@@ -310,12 +310,44 @@ def copy_new_timesheet_puts_rows_on_the_clipboard(page):
     btn = page.locator('[data-rb-action="copy-new"]')
     btn.click()
     expect(btn).to_have_text('✓ Copied 2 แถว')
-    lines = page.evaluate('navigator.clipboard.readText()').split('\n')
+    lines = page.evaluate('navigator.clipboard.readText()').splitlines()  # Windows' clipboard turns \n into \r\n
     assert len(lines) == 2, lines                            # data rows only, no header
     cells = [line.split('\t') for line in lines]
     assert cells[0][:3] == ['Dev1', 'S1', 'C1'], cells[0][:5]
     assert cells[0][day_col(11)] == '2' and cells[1][day_col(11)] == '6', (cells[0][day_col(11)], cells[1][day_col(11)])
     assert all(len(c) == 36 for c in cells), [len(c) for c in cells]
+
+
+def summary_row(page, squad):
+    return page.locator('#rebalance-container table.rb-summary tbody tr', has=page.locator('td', has_text=re.compile('^' + squad + '$')))
+
+
+def apply_shows_a_capex_opex_summary_per_squad_in_the_card(page):
+    page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+    setup_over_80(page)
+    expect(page.locator('#rebalance-container table.rb-summary')).to_have_count(0)  # only after Apply
+    page.click('[data-rb-action="apply"]')
+    cells = summary_row(page, 'S1').locator('td')
+    expect(cells).to_have_text(['S1', '18.18% → 20.45%', '81.82% → 79.55%'])
+    expect(cells.nth(2)).not_to_have_class(re.compile('pct-alert'))
+
+    btn = page.locator('[data-rb-action="copy-summary"]')
+    btn.click()
+    expect(btn).to_have_text('✓ Copied')
+    lines = page.evaluate('navigator.clipboard.readText()').splitlines()
+    assert lines ==['Squad\tCAPEX % (เดิม)\tCAPEX % (ใหม่)\tOPEX % (เดิม)\tOPEX % (ใหม่)',
+                     'S1\t18.18%\t20.45%\t81.82%\t79.55%'], lines
+
+    page.click('[data-rb-action="undo"]')
+    expect(page.locator('#rebalance-container table.rb-summary')).to_have_count(0)
+
+
+def summary_flags_a_squad_still_over_80(page):
+    setup(page, MAPPING, NEEDS_ROUND_2, [['Dev4', 'Developer']])
+    page.click('[data-rb-action="apply"]')  # round 1 only -> 84.21%
+    cell = summary_row(page, 'S1').locator('td').nth(2)
+    expect(cell).to_have_text('94.74% → 84.21%')
+    expect(cell).to_have_class(re.compile('pct-alert'))
 
 
 def copy_new_timesheet_warns_about_added_rows(page):
@@ -523,6 +555,8 @@ TESTS = [
     ('an applied rebalance survives a page reload and can still be undone', apply_survives_a_reload),
     ('Copy Timesheet ฉบับใหม่ puts the edited rows (no header) on the clipboard', copy_new_timesheet_puts_rows_on_the_clipboard),
     ('after Apply adds a row, the card says how many rows were added', copy_new_timesheet_warns_about_added_rows),
+    ('after Apply the card shows CAPEX/OPEX % per squad (เดิม → ใหม่) with a Copy button', apply_shows_a_capex_opex_summary_per_squad_in_the_card),
+    ('the summary flags a squad that is still over 80% in red', summary_flags_a_squad_still_over_80),
     ('the downloaded new timesheet .xlsx uploads back with the edits', downloaded_new_timesheet_uploads_back_with_the_edits),
     ('Remaining (เดือนนี้) = last month − this month and syncs to the Mapping grid', remaining_this_month_is_last_month_minus_actual),
     ('ขึ้นเดือนใหม่ rolls this month\'s Remaining into last month', new_month_rolls_this_month_into_last_month),
