@@ -57,7 +57,7 @@ user บอกว่าทุกเดือนใช้แค่ Timesheet + Ru
 - `squads` = จำนวนแถวใน table2
 - `overSquads` = squad ที่ `opexPct > threshold` เรียงตาม table2
 - `totalMD` = `table1.grandTotal`
-- `opexPct` = ผลรวม `colTotals` ของคอลัมน์ OPEX ÷ (ผลรวม CAPEX + OPEX) ถ้าตัวหารเป็น 0 ได้ `null`
+- `opexPct` = ผลรวม `opexMH` ทุก squad ใน table2 ÷ ผลรวม (`capexMH` + `opexMH`) ถ้าตัวหารเป็น 0 ได้ `null`
 
 `#kpi-tiles` แสดง 4 กล่อง: `Squad` · `เกิน 80%` (สีแดงถ้า > 0) · `Man-Day รวม` (`formatMH`) · `OPEX รวม` (`formatPct`, สีแดงถ้าเกิน threshold)
 

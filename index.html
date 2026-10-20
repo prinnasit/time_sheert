@@ -185,6 +185,19 @@ function buildTable2(classifiedRows) {
   });
 }
 
+// Headline numbers for the results tab: squad count, squads over the OPEX
+// threshold (in Table 2 order), total Man-Day, and the OPEX share overall.
+function summaryKpis(table1, table2, threshold) {
+  const capex = table2.reduce((a, r) => a + r.capexMH, 0);
+  const opex = table2.reduce((a, r) => a + r.opexMH, 0);
+  return {
+    squads: table2.length,
+    overSquads: table2.filter(r => r.opexPct != null && r.opexPct > threshold).map(r => r.sq),
+    totalMD: table1.grandTotal,
+    opexPct: capex + opex > 0 ? opex / (capex + opex) : null
+  };
+}
+
 function formatMH(n) {
   return (Math.round(n * 100) / 100).toFixed(2);
 }
@@ -900,7 +913,7 @@ function summarizeRows(rowArrays, mapping) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
-    parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
+    parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, summaryKpis, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
