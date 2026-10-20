@@ -272,6 +272,25 @@ def no_squad_over_80_shows_the_rebalance_empty_state(page):
     expect(page.locator('#rebalance-card')).to_be_hidden()
 
 
+def rebalance_empty_state_text_follows_the_situation(page):
+    show(page, 'rebalance')
+    expect(page.locator('#rebalance-empty')).to_contain_text('ยังไม่มีผลลัพธ์')           # before any Run
+    setup(page, MAPPING, [timesheet_row('Ann', 'S1', 'C1', {1: 8})])                     # nothing over 80%
+    show(page, 'rebalance')
+    expect(page.locator('#rebalance-empty')).to_contain_text('ไม่มี squad ที่ OPEX เกิน 80%')
+
+
+def new_month_with_a_squad_over_80_does_not_claim_all_clear(page):
+    setup_over_80(page)
+    click(page, '#new-month-btn')
+    show(page, 'rebalance')
+    empty = page.locator('#rebalance-empty')
+    expect(empty).to_be_visible()
+    expect(empty).to_contain_text('กด Run อีกครั้ง')
+    expect(empty).to_contain_text('S1')
+    expect(empty).not_to_contain_text('🎉')
+
+
 def timesheet_strip_counts_changed_cells_after_apply(page):
     setup_over_80(page)
     reveal(page, '#timesheet-rebalance-strip')
@@ -929,6 +948,8 @@ TESTS = [
     ('ผลลัพธ์ shows 4 KPI tiles, an over-80% banner and a ไปแก้ link to tab 3', results_show_kpis_and_a_link_to_fix_over_80),
     ('the badge and banner clear once no squad is over 80%', badge_and_banner_clear_once_nothing_is_over_80),
     ('แก้เกิน 80% shows its empty state when no squad is over', no_squad_over_80_shows_the_rebalance_empty_state),
+    ('the แก้เกิน 80% empty-state text follows the situation', rebalance_empty_state_text_follows_the_situation),
+    ('after ขึ้นเดือนใหม่ the empty state does not claim all clear while a squad is over 80%', new_month_with_a_squad_over_80_does_not_claim_all_clear),
     ('after Apply the Timesheet tab says how many cells changed, gone after Undo', timesheet_strip_counts_changed_cells_after_apply),
     ('Run with an empty mapping shows an error banner', run_without_mapping_shows_error),
     ('Run with an empty timesheet shows an error banner', run_without_timesheet_shows_error),

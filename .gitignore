@@ -2,3 +2,4 @@
 ~$*.xlsx
 *.xlsx
 .claude/worktrees/
+__pycache__/

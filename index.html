@@ -2441,6 +2441,13 @@ if (typeof module !== 'undefined' && module.exports) {
     rebalanceBadge.hidden = over.length === 0;
     rebalanceBadge.textContent = over.length ? String(over.length) : '';
     rebalanceEmpty.hidden = !rebalanceCard.hidden;
+    // The card is also hidden before any Run / after a new month, so the text
+    // must say what is actually true rather than always "all clear".
+    rebalanceEmpty.innerHTML = !k
+      ? 'ยังไม่มีผลลัพธ์ — ไปที่แท็บ <a href="#timesheet">Timesheet</a> แล้วกด Run'
+      : over.length > 0
+        ? 'กด Run อีกครั้งเพื่อดูคำแนะนำการแก้ squad ที่เกิน 80% (' + over.map(escapeHtml).join(', ') + ') <a href="#timesheet">ไปที่แท็บ Timesheet</a>'
+        : 'ไม่มี squad ที่ OPEX เกิน 80% 🎉';
     const changed = rebalanceState ? diffTimesheets(rebalanceState.original, timesheetGrid.getRows(), rebalanceState.moves).rows.length : 0;
     timesheetStrip.hidden = !rebalanceState;
     timesheetStrip.innerHTML = rebalanceState
@@ -2774,7 +2781,7 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     // The Run button sits at the bottom of a long tab; without this the new
     // tab would open scrolled down, hiding its top.
-    if (changed) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    if (changed) window.scrollTo(0, 0);
   }
   function goToView(name) {
     if (location.hash !== '#' + name) location.hash = name;
