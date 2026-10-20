@@ -554,6 +554,72 @@ function draftRowDefaults(rows, mapping, nameKey, sq) {
   return { fromWoKey: fromWoKey, toWoKey: toWoKey, day: day, mh: 1 };
 }
 
+// Draft rows -> moves applyMoves() can run, checked against the current
+// timesheet. A row with an error is left out (and blocks Apply in the UI);
+// warnings (CAPEX over the role ceiling, Remaining going negative) don't.
+// The source cell is the person's row for fromWoKey with the most hours on
+// that day; rows earlier in the draft that draw on the same cell count.
+function resolveDraft(rows, draft, ctx) {
+  const fmt = v => String(Math.round(v * 100) / 100);
+  const sumDays = e => e.days.reduce((a, b) => a + b, 0);
+  const entries = extractEntries(rows, ctx.mapping);
+  const errors = {}, warnings = {}, moves = [], okRows = [], taken = {};
+
+  draft.forEach(d => {
+    const mh = Number(d.mh), day = Number(d.day);
+    const to = ctx.mapping.map[d.toWoKey];
+    const mine = entries.filter(e => e.nameKey === d.nameKey && e.sq === d.sq);
+    let err = null, src = null;
+    if (!(mh > 0)) err = 'MH ต้องมากกว่า 0';
+    else if (!(Number.isInteger(day) && day >= 1 && day <= 31)) err = 'วันต้องเป็น 1–31';
+    else if (d.fromWoKey === d.toWoKey) err = 'จาก WO กับไป WO ต้องไม่ใช่ตัวเดียวกัน';
+    else if (!to || to.category !== 'CAPEX') err = 'ไป WO ต้องเป็น CAPEX';
+    else {
+      src = mine.filter(e => e.woKey === d.fromWoKey).sort((a, b) => b.days[day - 1] - a.days[day - 1])[0] || null;
+      if (!src) err = 'ไม่พบแถว ' + d.fromWoKey + ' ของ ' + d.name;
+      else {
+        const k = src.index + '|' + day;
+        const left = src.days[day - 1] - (taken[k] || 0);
+        if (mh > left + 1e-9) err = 'วันที่ ' + day + ' ของ ' + src.woNo + ' เหลือให้ย้ายได้ ' + fmt(Math.max(left, 0)) + ' MH';
+        else taken[k] = (taken[k] || 0) + mh;
+      }
+    }
+    if (err) { errors[d.id] = err; return; }
+    const tgt = mine.find(e => e.woKey === d.toWoKey);
+    moves.push({
+      nameKey: d.nameKey, name: src.name, sq: d.sq, fte: src.fte, round: 0,
+      fromRow: src.index, fromWoNo: src.woNo, fromWoKey: src.woKey,
+      toRow: tgt ? tgt.index : null, toWoNo: to.wo, toWoKey: d.toWoKey, toWoName: to.name || to.wo,
+      day: day, mh: mh
+    });
+    okRows.push(d);
+  });
+
+  const previewRows = applyMoves(rows, moves);
+  const preview = extractEntries(previewRows, ctx.mapping);
+  const scale = ctx.workingDays / BASE_MONTH_MD;
+  okRows.forEach(d => {
+    const list = [];
+    const role = ctx.roleMap[d.nameKey];
+    const c = role ? ctx.ceilings[normalizeKey(role)] : null;
+    if (c) {
+      const capexMH = preview.filter(e => e.nameKey === d.nameKey && e.category === 'CAPEX').reduce((a, e) => a + sumDays(e), 0);
+      const limit = c.capex * scale * MH_PER_DAY;
+      if (capexMH > limit + 1e-9) {
+        list.push('CAPEX ของ ' + d.name + ' จะเป็น ' + fmt(capexMH / MH_PER_DAY) + ' MD เกินเพดาน ' + fmt(limit / MH_PER_DAY) + ' MD');
+      }
+    }
+    const last = (ctx.remainingLast || {})[d.toWoKey];
+    if (last != null) {
+      const usedMD = preview.filter(e => e.woKey === d.toWoKey).reduce((a, e) => a + sumDays(e), 0) / MH_PER_DAY;
+      if (last - usedMD < -1e-9) list.push('Remaining ของ ' + ctx.mapping.map[d.toWoKey].wo + ' จะติดลบ ' + fmt(usedMD - last) + ' MD');
+    }
+    if (list.length) warnings[d.id] = list;
+  });
+
+  return { moves: moves, errors: errors, warnings: warnings, previewRows: previewRows };
+}
+
 function diffCell(before, after) {
   const b = formatMH(before), a = formatMH(after);
   return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
@@ -857,7 +923,7 @@ if (typeof module !== 'undefined' && module.exports) {
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
     takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, cellKey, cellTotals, diffTimesheets,
-    movesToDraft, draftRowDefaults, diffCell,
+    movesToDraft, draftRowDefaults, resolveDraft, diffCell,
     extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
   };
 }

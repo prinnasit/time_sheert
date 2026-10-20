@@ -453,6 +453,71 @@ test('draftRowDefaults without OPEX takes the first WO and a different CAPEX WO'
   assert.deepStrictEqual(App.draftRowDefaults([], mapping, 'nobody', 'S1'), { fromWoKey: '', toWoKey: 'C1', day: 1, mh: 1 });
 });
 
+// ---- resolveDraft -------------------------------------------------------------
+const rdRows = () => [row('Dev1', 'S1', 'C1', { 1: 8, 2: 8 }), row('Dev1', 'S1', 'O1', days(3, 11, 8))];
+const rdRow = o => Object.assign({ id: 1, nameKey: 'dev1', name: 'Dev1', sq: 'S1', day: 11, mh: 2, fromWoKey: 'O1', toWoKey: 'C1', origin: 'plan' }, o);
+const rdCtx = (people, extra) => ctxFor(rdRows(), people === undefined ? [DEV('Dev1')] : people, extra);
+
+test('resolveDraft turns a valid row into one move and previews it', () => {
+  const r = App.resolveDraft(rdRows(), [rdRow()], rdCtx());
+  assert.deepStrictEqual(r.errors, {});
+  assert.deepStrictEqual(r.warnings, {});
+  assert.strictEqual(r.moves.length, 1);
+  const m = r.moves[0];
+  assert.deepStrictEqual([m.fromRow, m.toRow, m.day, m.mh, m.round, m.fromWoKey, m.toWoKey], [1, 0, 11, 2, 0, 'O1', 'C1']);
+  assert.strictEqual(r.previewRows[1][5 + 10], '6');
+  assert.strictEqual(r.previewRows[0][5 + 10], '2');
+});
+
+test('resolveDraft with an empty draft changes nothing', () => {
+  const r = App.resolveDraft(rdRows(), [], rdCtx());
+  assert.deepStrictEqual([r.moves, r.errors, r.warnings], [[], {}, {}]);
+  assert.deepStrictEqual(r.previewRows, rdRows());
+});
+
+test('resolveDraft reports one error per bad row and leaves it out of the moves', () => {
+  const cases = [
+    [{ mh: 0 }, 'MH ต้องมากกว่า 0'],
+    [{ mh: 'abc' }, 'MH ต้องมากกว่า 0'],
+    [{ day: 0 }, 'วันต้องเป็น 1–31'],
+    [{ toWoKey: 'O1' }, 'จาก WO กับไป WO ต้องไม่ใช่ตัวเดียวกัน'],
+    [{ toWoKey: 'Z01' }, 'ไป WO ต้องเป็น CAPEX'],
+    [{ fromWoKey: 'O9' }, 'ไม่พบแถว O9 ของ Dev1'],
+    [{ mh: 9 }, 'วันที่ 11 ของ O1 เหลือให้ย้ายได้ 8 MH']
+  ];
+  cases.forEach(([o, msg]) => {
+    const r = App.resolveDraft(rdRows(), [rdRow(o)], rdCtx());
+    assert.deepStrictEqual(r.errors, { 1: msg }, JSON.stringify(o));
+    assert.strictEqual(r.moves.length, 0);
+  });
+});
+
+test('resolveDraft counts earlier rows that draw on the same cell', () => {
+  const r = App.resolveDraft(rdRows(), [rdRow({ id: 1, mh: 5 }), rdRow({ id: 2, mh: 5 })], rdCtx());
+  assert.deepStrictEqual(r.errors, { 2: 'วันที่ 11 ของ O1 เหลือให้ย้ายได้ 3 MH' });
+  assert.strictEqual(r.moves.length, 1);
+});
+
+test('resolveDraft targets a CAPEX WO the person has no row for with toRow null (applyMoves adds it)', () => {
+  const r = App.resolveDraft(rdRows(), [rdRow({ toWoKey: 'C2' })], rdCtx());
+  assert.strictEqual(r.moves[0].toRow, null);
+  assert.strictEqual(r.previewRows.length, 3);
+  assert.deepStrictEqual(r.previewRows[2].slice(0, 4), ['Dev1', 'S1', 'C2', 'Cap 2']);
+  assert.strictEqual(r.previewRows[2][5 + 10], '2');
+});
+
+test('resolveDraft warns (but still moves) when CAPEX would pass the role ceiling', () => {
+  const r = App.resolveDraft(rdRows(), [rdRow()], rdCtx(undefined, { workingDays: 1 })); // ceiling 16 MD x 1/20 = 0.8 MD
+  assert.deepStrictEqual(r.warnings, { 1: ['CAPEX ของ Dev1 จะเป็น 2.25 MD เกินเพดาน 0.8 MD'] });
+  assert.strictEqual(r.moves.length, 1);
+  assert.deepStrictEqual(App.resolveDraft(rdRows(), [rdRow()], rdCtx([], { workingDays: 1 })).warnings, {}); // no role, no ceiling check
+});
+
+test('resolveDraft warns when the target WO\'s Remaining would go negative', () => {
+  const r = App.resolveDraft(rdRows(), [rdRow()], rdCtx(undefined, { remainingLast: { C1: 2 } })); // 18 MH = 2.25 MD used
+  assert.deepStrictEqual(r.warnings, { 1: ['Remaining ของ C1 จะติดลบ 0.25 MD'] });
+});
+
 process.on('exit', () => {
   if (failures > 0) { console.log(failures + ' failing test(s)'); process.exitCode = 1; }
   else { console.log('All rebalance tests passed'); }
