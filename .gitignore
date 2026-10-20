@@ -1,3 +1,4 @@
 .superpowers/
 ~$*.xlsx
 *.xlsx
+.claude/worktrees/
