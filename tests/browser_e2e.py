@@ -109,6 +109,14 @@ def table1_cell(page, squad, wo_no):
     return row.locator('td').nth(col)
 
 
+def draft_rows(page):
+    return page.locator('#rebalance-container table.rb-draft tbody tr')
+
+
+def draft_field(page, index, field):
+    return draft_rows(page).nth(index).locator('[data-field="' + field + '"]')
+
+
 def download(page, click_selector):
     with page.expect_download() as info:
         page.click(click_selector)
@@ -243,7 +251,7 @@ def continue_runs_round_2_when_round_1_is_not_enough(page):
 
     page.click('[data-rb-action="continue"]')
     expect(page.locator('[data-rb-action="continue"]')).to_have_count(0)
-    expect(rebalance).to_contain_text('✓ S1: OPEX 94.74% → 78.95%')
+    expect(page.locator('#rb-draft-preview')).to_contain_text('94.74% → 78.95%')
 
     page.click('[data-rb-action="apply"]')
     expect(opex_cell(page, 'S1')).to_have_text('78.95%')
@@ -265,10 +273,9 @@ def apply_without_continue_only_does_round_1(page):
 
 def target_wo_dropdown_redirects_the_move(page):
     setup_over_80(page)
-    select = page.locator('#rebalance-container select.rb-target')
-    expect(select).to_have_value('C1')  # Dev1's own CAPEX WO comes first
-    select.select_option('C2')          # a CAPEX WO Dev1 has no row for yet
-    expect(page.locator('#rebalance-container select.rb-target')).to_have_value('C2')
+    expect(draft_field(page, 0, 'toWoKey')).to_have_value('C1')  # Dev1's own CAPEX WO comes first
+    draft_field(page, 0, 'toWoKey').select_option('C2')          # a CAPEX WO Dev1 has no row for yet
+    expect(draft_field(page, 0, 'toWoKey')).to_have_value('C2')
 
     page.click('[data-rb-action="apply"]')
     expect(grid_cell(page, 'timesheet-grid', 0, day_col(11))).to_have_value('')  # C1 untouched
@@ -288,6 +295,96 @@ def people_without_a_role_are_skipped_with_a_reason(page):
 def unknown_role_is_skipped_with_a_reason(page):
     setup(page, MAPPING, OVER_80, [['Dev1', 'Wizard']])
     expect(page.locator('#rebalance-container')).to_contain_text('ไม่พบตำแหน่ง "Wizard" ในตารางเพดาน')
+
+
+def draft_lists_the_plan_per_day_with_a_preview(page):
+    setup_over_80(page)
+    expect(draft_rows(page)).to_have_count(1)
+    expect(draft_field(page, 0, 'person')).to_have_value('dev1|S1')
+    expect(draft_field(page, 0, 'day')).to_have_value('11')
+    expect(draft_field(page, 0, 'mh')).to_have_value('2')
+    expect(draft_field(page, 0, 'fromWoKey')).to_have_value('O1')
+    expect(draft_field(page, 0, 'toWoKey')).to_have_value('C1')
+    expect(page.locator('#rb-draft-preview')).to_contain_text('81.82% → 79.55%')
+
+
+def editing_draft_mh_updates_the_preview_and_what_apply_does(page):
+    setup_over_80(page)
+    mh = draft_field(page, 0, 'mh')
+    mh.fill('4')
+    expect(page.locator('#rb-draft-preview')).to_contain_text('81.82% → 77.27%')  # 68 / 88
+    assert mh.evaluate('el => el === document.activeElement'), 'typing MH must not re-render the draft table'
+    page.click('[data-rb-action="apply"]')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('4')
+    expect(grid_cell(page, 'timesheet-grid', 0, day_col(11))).to_have_value('4')
+    expect(page.locator('#changelog-container')).not_to_contain_text('แก้เอง')
+
+
+def editing_draft_day_moves_a_different_day(page):
+    setup_over_80(page)
+    draft_field(page, 0, 'day').select_option('10')
+    page.click('[data-rb-action="apply"]')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).to_have_value('6')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('8')
+
+
+def draft_mh_over_the_day_is_an_error_and_blocks_apply(page):
+    setup_over_80(page)
+    draft_field(page, 0, 'mh').fill('9')
+    expect(draft_rows(page).nth(0)).to_have_class(re.compile('rb-row-error'))
+    expect(draft_rows(page).nth(0).locator('td.rb-row-msg')).to_contain_text('วันที่ 11 ของ O1 เหลือให้ย้ายได้ 8 MH')
+    expect(page.locator('[data-rb-action="apply"]')).to_be_disabled()
+    draft_field(page, 0, 'mh').fill('2')
+    expect(page.locator('[data-rb-action="apply"]')).to_be_enabled()
+
+
+def deleting_the_only_draft_row_disables_apply(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="draft-del"]')
+    expect(draft_rows(page)).to_have_count(0)
+    expect(page.locator('[data-rb-action="apply"]')).to_be_disabled()
+    expect(page.locator('#rb-draft-preview')).to_be_empty()
+
+
+def adding_a_draft_row_uses_sensible_defaults(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="draft-add"]')
+    expect(draft_rows(page)).to_have_count(2)
+    expect(draft_field(page, 1, 'person')).to_have_value('dev1|S1')
+    expect(draft_field(page, 1, 'fromWoKey')).to_have_value('O1')
+    expect(draft_field(page, 1, 'toWoKey')).to_have_value('C1')
+    expect(draft_field(page, 1, 'day')).to_have_value('11')
+    expect(draft_field(page, 1, 'mh')).to_have_value('1')
+    expect(page.locator('#rb-draft-preview')).to_contain_text('81.82% → 78.41%')  # 69 / 88
+
+
+def changing_the_person_resets_the_row_defaults(page):
+    setup(page, MAPPING, OVER_80 + [
+        timesheet_row('Ann', 'S1', 'C2', {1: 8}),
+        timesheet_row('Ann', 'S1', 'O1', {20: 8, 21: 8, 22: 8, 23: 8}),
+    ], DEV1)
+    page.click('[data-rb-action="draft-add"]')
+    last = draft_rows(page).count() - 1
+    draft_field(page, last, 'person').select_option('ann|S1')
+    expect(draft_field(page, last, 'fromWoKey')).to_have_value('O1')
+    expect(draft_field(page, last, 'toWoKey')).to_have_value('C2')
+    expect(draft_field(page, last, 'day')).to_have_value('23')
+    expect(draft_field(page, last, 'mh')).to_have_value('1')
+
+
+def draft_ceiling_warning_does_not_block_apply(page):
+    setup(page, MAPPING, OVER_80, DEV1, working_days='1')  # CAPEX ceiling 16 MD x 1/20 = 0.8 MD
+    page.click('[data-rb-action="draft-add"]')
+    expect(draft_rows(page).last.locator('td.rb-row-msg')).to_contain_text('เกินเพดาน')
+    expect(page.locator('[data-rb-action="apply"]')).to_be_enabled()
+
+
+def recalc_discards_draft_edits(page):
+    setup_over_80(page)
+    draft_field(page, 0, 'mh').fill('4')
+    expect(page.locator('#rb-draft-preview')).to_contain_text('81.82% → 77.27%')
+    page.click('[data-rb-action="recalc"]')
+    expect(draft_field(page, 0, 'mh')).to_have_value('2')
 
 
 def apply_survives_a_reload(page):
@@ -353,7 +450,7 @@ def summary_flags_a_squad_still_over_80(page):
 
 def copy_new_timesheet_warns_about_added_rows(page):
     setup_over_80(page)
-    page.locator('#rebalance-container select.rb-target').select_option('C2')  # Dev1 has no C2 row
+    draft_field(page, 0, 'toWoKey').select_option('C2')  # Dev1 has no C2 row
     page.click('[data-rb-action="apply"]')
     expect(page.locator('#rebalance-container')).to_contain_text('มีแถวใหม่ 1 แถวต่อท้าย')
 
@@ -636,6 +733,15 @@ TESTS = [
     ('choosing another CAPEX WO in the dropdown sends the move there', target_wo_dropdown_redirects_the_move),
     ('a person with no role is skipped with a reason and Apply is disabled', people_without_a_role_are_skipped_with_a_reason),
     ('a role missing from Role Ceilings is skipped with a reason', unknown_role_is_skipped_with_a_reason),
+    ('the draft lists the plan per day with an "ถ้า Apply ตามนี้" preview', draft_lists_the_plan_per_day_with_a_preview),
+    ('editing draft MH updates the preview and what Apply writes', editing_draft_mh_updates_the_preview_and_what_apply_does),
+    ('editing the draft day moves hours on that day instead', editing_draft_day_moves_a_different_day),
+    ('draft MH over what the day holds is an error and blocks Apply', draft_mh_over_the_day_is_an_error_and_blocks_apply),
+    ('deleting the only draft row empties the preview and disables Apply', deleting_the_only_draft_row_disables_apply),
+    ('+ เพิ่มการย้าย adds a row with sensible defaults', adding_a_draft_row_uses_sensible_defaults),
+    ('changing a draft row\'s person resets its from/to/day/MH', changing_the_person_resets_the_row_defaults),
+    ('a CAPEX-ceiling warning in the draft does not block Apply', draft_ceiling_warning_does_not_block_apply),
+    ('คำนวณคำแนะนำใหม่ throws away draft edits', recalc_discards_draft_edits),
     ('an applied rebalance survives a page reload and can still be undone', apply_survives_a_reload),
     ('Copy Timesheet ฉบับใหม่ puts the edited rows (no header) on the clipboard', copy_new_timesheet_puts_rows_on_the_clipboard),
     ('after Apply adds a row, the card says how many rows were added', copy_new_timesheet_warns_about_added_rows),

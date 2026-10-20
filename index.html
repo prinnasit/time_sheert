@@ -1126,6 +1126,10 @@ if (typeof module !== 'undefined' && module.exports) {
   #rebalance-container .banner { margin-bottom: 8px; }
   #rebalance-container .row { margin-top: 12px; }
   table.input-grid input.cell-changed { background: var(--warn-bg); color: var(--warn-text); font-weight: 600; }
+  #rebalance-container input.rb-mh { width: 64px; padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; text-align: right; }
+  #rebalance-container tr.rb-row-error td { background: var(--error-bg); }
+  #rebalance-container .rb-msg-error { color: var(--error-text); font-weight: 600; }
+  #rebalance-container .rb-msg-warn { color: var(--warn-text); }
 </style>
 
 <header class="page-head">
@@ -1281,7 +1285,10 @@ if (typeof module !== 'undefined' && module.exports) {
   // After the first Apply: { original: <grid rows before any edit>, moves: <every applied move> }.
   let rebalanceState = null;
   let rebalanceIncludeRound2 = false;
-  let rebalanceOverrides = {};
+  // Editable rebalance suggestion (spec: docs/superpowers/specs/2026-10-20-editable-rebalance-design.md).
+  // null = "build one from the current plan on the next render".
+  let rebalanceDraft = null;
+  let nextDraftId = 1;
   const rebalanceCard = document.getElementById('rebalance-card');
   const rebalanceContainer = document.getElementById('rebalance-container');
   const changelogCard = document.getElementById('changelog-card');
@@ -1976,7 +1983,7 @@ if (typeof module !== 'undefined' && module.exports) {
   function clearRebalanceState() {
     rebalanceState = null;
     rebalanceIncludeRound2 = false;
-    rebalanceOverrides = {};
+    rebalanceDraft = null;
     try {
       localStorage.removeItem(REBALANCE_STORAGE_KEY);
       localStorage.removeItem(TIMESHEET_STORAGE_KEY);
@@ -2008,16 +2015,100 @@ if (typeof module !== 'undefined' && module.exports) {
   function currentPlan() {
     return planRebalance(
       buildRebalanceCtx(timesheetGrid.getRows(), parseMappingText(mappingInput.value)),
-      { includeRound2: rebalanceIncludeRound2, targetOverrides: rebalanceOverrides }
+      { includeRound2: rebalanceIncludeRound2 }
     );
   }
 
-  function fmtMD(mh) { return (Math.round(mh * 100) / 100).toString(); }
+  function withDraftIds(rows) { return rows.map(r => Object.assign({ id: nextDraftId++ }, r)); }
+  function draftCtx() { return buildRebalanceCtx(timesheetGrid.getRows(), parseMappingText(mappingInput.value)); }
+  function canApply(res) { return res.moves.length > 0 && Object.keys(res.errors).length === 0; }
+
+  function personOptions(entries) {
+    const seen = {}, out = [];
+    entries.forEach(e => {
+      const value = e.nameKey + '|' + e.sq;
+      if (!e.nameKey || seen[value]) return;
+      seen[value] = true;
+      out.push({ value: value, nameKey: e.nameKey, sq: e.sq, name: e.name });
+    });
+    return out;
+  }
+
+  function optionHtml(value, label, selected) {
+    return '<option value="' + escapeHtml(value) + '"' + (selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+  }
+
+  function draftMessageHtml(res, id) {
+    if (res.errors[id]) return '<span class="rb-msg-error">✕ ' + escapeHtml(res.errors[id]) + '</span>';
+    return (res.warnings[id] || []).map(w => '<span class="rb-msg-warn">⚠ ' + escapeHtml(w) + '</span>').join('<br>');
+  }
+
+  function renderDraftTable(draft, ctx, res) {
+    const entries = extractEntries(ctx.rowArrays, ctx.mapping);
+    const people = personOptions(entries);
+    const capex = Object.keys(ctx.mapping.map).filter(k => ctx.mapping.map[k].category === 'CAPEX');
+    const woLabel = k => { const m = ctx.mapping.map[k]; return m ? m.wo + (m.name && m.name !== m.wo ? ' — ' + m.name : '') : k; };
+    let html = '<div class="table-scroll"><table class="rb-draft"><thead><tr><th>ชื่อ · Squad</th><th>วัน</th><th>MH</th><th>จาก WO</th><th>ไป CAPEX WO</th><th></th><th></th></tr></thead><tbody>';
+    draft.forEach(d => {
+      const id = escapeHtml(String(d.id));
+      const personValue = d.nameKey + '|' + d.sq;
+      const pOpts = people.some(p => p.value === personValue) ? people : [{ value: personValue, name: d.name, sq: d.sq }].concat(people);
+      const mine = entries.filter(e => e.nameKey === d.nameKey && e.sq === d.sq);
+      const fromKeys = mine.map(e => e.woKey).filter((k, i, a) => a.indexOf(k) === i);
+      if (fromKeys.indexOf(d.fromWoKey) < 0) fromKeys.unshift(d.fromWoKey);
+      const own = capex.filter(k => mine.some(e => e.woKey === k));
+      const toKeys = own.concat(capex.filter(k => own.indexOf(k) < 0));
+      if (toKeys.indexOf(d.toWoKey) < 0) toKeys.unshift(d.toWoKey);
+      html += '<tr data-draft-id="' + id + '"' + (res.errors[d.id] ? ' class="rb-row-error"' : '') + '>' +
+        '<td><select data-field="person" data-draft-id="' + id + '">' + pOpts.map(p => optionHtml(p.value, p.name + ' · ' + p.sq, p.value === personValue)).join('') + '</select></td>' +
+        '<td><select data-field="day" data-draft-id="' + id + '">' + Array.from({ length: 31 }, (_, i) => optionHtml(String(i + 1), String(i + 1), i + 1 === Number(d.day))).join('') + '</select></td>' +
+        '<td><input type="text" inputmode="decimal" class="rb-mh" data-field="mh" data-draft-id="' + id + '" value="' + escapeHtml(String(d.mh)) + '"></td>' +
+        '<td><select data-field="fromWoKey" data-draft-id="' + id + '">' + fromKeys.map(k => optionHtml(k, woLabel(k), k === d.fromWoKey)).join('') + '</select></td>' +
+        '<td><select data-field="toWoKey" data-draft-id="' + id + '">' + toKeys.map(k => optionHtml(k, woLabel(k), k === d.toWoKey)).join('') + '</select></td>' +
+        '<td><button type="button" class="btn" data-rb-action="draft-del" data-draft-id="' + id + '" title="ลบแถวนี้">🗑</button></td>' +
+        '<td class="rb-row-msg" data-draft-id="' + id + '">' + draftMessageHtml(res, d.id) + '</td></tr>';
+    });
+    return html + '</tbody></table></div>';
+  }
+
+  // "ถ้า Apply ตามนี้": only the squads whose % would change.
+  function draftPreviewHtml(ctx, res) {
+    if (res.moves.length === 0) return '';
+    const s = squadSummary(summarizeRows(res.previewRows, ctx.mapping).table2, summarizeRows(ctx.rowArrays, ctx.mapping).table2);
+    const changed = s.rows.filter(r => formatPct(r[1]) !== formatPct(r[2]) || formatPct(r[3]) !== formatPct(r[4]));
+    if (changed.length === 0) return '';
+    let html = '<p class="card-desc">ถ้า Apply ตามนี้:</p><div class="table-scroll"><table class="rb-preview"><thead><tr><th>Squad</th><th>CAPEX %</th><th>OPEX %</th></tr></thead><tbody>';
+    changed.forEach(([sq, capexBefore, capexAfter, opexBefore, opexAfter]) => {
+      const high = opexAfter != null && opexAfter > OPEX_PCT_ALERT_THRESHOLD;
+      html += '<tr><td>' + escapeHtml(sq) + '</td><td>' + pctDiff(capexBefore, capexAfter).text + '</td>' +
+        '<td' + (high ? ' class="pct-alert"' : '') + '>' + pctDiff(opexBefore, opexAfter).text + (high ? '' : ' ✓') + '</td></tr>';
+    });
+    return html + '</tbody></table></div>';
+  }
+
+  // Typing MH only refreshes messages / preview / Apply, never the inputs,
+  // so the cursor stays in the MH box.
+  function updateDraftStatus() {
+    const ctx = draftCtx();
+    const res = resolveDraft(ctx.rowArrays, rebalanceDraft || [], ctx);
+    rebalanceContainer.querySelectorAll('tr[data-draft-id]').forEach(tr => {
+      const id = Number(tr.dataset.draftId);
+      tr.classList.toggle('rb-row-error', !!res.errors[id]);
+      const msg = tr.querySelector('.rb-row-msg');
+      if (msg) msg.innerHTML = draftMessageHtml(res, id);
+    });
+    const preview = rebalanceContainer.querySelector('#rb-draft-preview');
+    if (preview) preview.innerHTML = draftPreviewHtml(ctx, res);
+    const apply = rebalanceContainer.querySelector('[data-rb-action="apply"]');
+    if (apply) apply.disabled = !canApply(res);
+  }
 
   function renderRebalance() {
     const plan = currentPlan();
     const flagged = plan.squads.filter(s => s.status !== 'ok');
-    if (flagged.length === 0 && !rebalanceState) {
+    if (rebalanceDraft === null) rebalanceDraft = withDraftIds(movesToDraft(plan.moves));
+    const showDraft = flagged.length > 0 || rebalanceDraft.length > 0;
+    if (!showDraft && !rebalanceState) {
       rebalanceCard.hidden = true;
       rebalanceContainer.innerHTML = '';
       return;
@@ -2026,16 +2117,14 @@ if (typeof module !== 'undefined' && module.exports) {
     let html = '';
 
     if (flagged.length > 0) {
-      html += '<p class="card-desc">เพดานคำนวณจากวันทำงาน ' + escapeHtml(String(workingDaysValue() || '-')) + ' วัน (× วันทำงาน ÷ 20) — เลือกคนที่ลง OPEX เกินเพดานของตำแหน่งก่อน ย้ายเท่าที่จำเป็นให้ squad ไม่เกิน 80%</p>';
+      html += '<p class="card-desc">เพดานคำนวณจากวันทำงาน ' + escapeHtml(String(workingDaysValue() || '-')) + ' วัน (× วันทำงาน ÷ 20) — ระบบเสนอการย้ายทีละวันไว้ให้ แก้ ลบ หรือเพิ่มได้ก่อนกด Apply</p>';
     }
     flagged.forEach(s => {
-      const before = formatPct(s.beforePct), after = formatPct(s.afterPct);
-      if (s.status === 'fixed') {
-        html += '<p class="card-desc">✓ ' + escapeHtml(s.sq) + ': OPEX ' + before + ' → ' + after + '</p>';
-      } else if (s.status === 'needs-continue') {
+      const after = formatPct(s.afterPct);
+      if (s.status === 'needs-continue') {
         html += '<div class="banner warn">' + escapeHtml(s.sq) + ' ยังเหลือ OPEX ' + after + ' หลังย้ายตามเพดานของตำแหน่ง (รอบที่ 1) — กด "ทำต่อ" เพื่อลองย้ายคนที่ยังมีที่ว่างใน CAPEX (รอบที่ 2)</div>';
-      } else {
-        html += '<div class="banner warn">' + escapeHtml(s.sq) + ' ยังเหลือ OPEX ' + after + ' ไม่สามารถแก้ได้ภายในเพดานของตำแหน่ง — ต้องแก้ด้วยตนเองใน Timesheet</div>';
+      } else if (s.status === 'unresolvable') {
+        html += '<div class="banner warn">' + escapeHtml(s.sq) + ' ยังเหลือ OPEX ' + after + ' ไม่สามารถแก้ได้ภายในเพดานของตำแหน่ง — แก้เองในร่างหรือใน Timesheet</div>';
       }
     });
     if (plan.skipped.length > 0) {
@@ -2043,26 +2132,16 @@ if (typeof module !== 'undefined' && module.exports) {
         plan.skipped.map(s => escapeHtml(s.name || '(ไม่มีชื่อ)') + ' (' + escapeHtml(s.reason) + ')').join(', ') + '</div>';
     }
 
-    if (plan.lines.length > 0) {
-      html += '<div class="table-scroll"><table><thead><tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>Squad</th><th>OPEX (MD) / เพดาน</th><th>ย้าย (MH)</th><th>จาก WO</th><th>ไป CAPEX WO</th><th>รอบ</th></tr></thead><tbody>';
-      plan.lines.forEach(l => {
-        const opts = l.targetOptions.map(o =>
-          '<option value="' + escapeHtml(o.woKey) + '"' + (o.woKey === l.toWoKey ? ' selected' : '') + '>' + escapeHtml(o.woNo + (o.woName && o.woName !== o.woNo ? ' — ' + o.woName : '')) + '</option>').join('');
-        html += '<tr><td>' + escapeHtml(l.name) + '</td><td>' + escapeHtml(l.role) + '</td><td>' + escapeHtml(l.sq) + '</td>' +
-          '<td>' + fmtMD(l.opexMDBefore) + ' / ' + fmtMD(l.opexCeilingMD) + '</td>' +
-          '<td>' + fmtMD(l.movedMH) + (l.error ? ' ⚠ ' + escapeHtml(l.error) : '') + '</td>' +
-          '<td>' + escapeHtml(l.fromWoNos.join(', ')) + '</td>' +
-          '<td><select class="rb-target" data-name-key="' + escapeHtml(l.nameKey) + '">' + opts + '</select></td>' +
-          '<td>' + (l.movedMH === 0 ? '' : l.round) + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-
-    if (flagged.length > 0) {
+    if (showDraft) {
+      const ctx = draftCtx();
+      const res = resolveDraft(ctx.rowArrays, rebalanceDraft, ctx);
       const needsContinue = flagged.some(s => s.status === 'needs-continue');
-      html += '<div class="row"><button type="button" class="btn btn-primary" data-rb-action="apply"' + (plan.moves.length ? '' : ' disabled') + '>Apply</button>';
-      if (needsContinue) html += '<button type="button" class="btn" data-rb-action="continue">ทำต่อ (รอบที่ 2)</button>';
-      html += '</div>';
+      html += renderDraftTable(rebalanceDraft, ctx, res) +
+        '<div class="row"><button type="button" class="btn" data-rb-action="draft-add">+ เพิ่มการย้าย</button>' +
+        '<button type="button" class="btn" data-rb-action="recalc">↻ คำนวณคำแนะนำใหม่</button>' +
+        (needsContinue ? '<button type="button" class="btn" data-rb-action="continue">ทำต่อ (รอบที่ 2)</button>' : '') + '</div>' +
+        '<div id="rb-draft-preview">' + draftPreviewHtml(ctx, res) + '</div>' +
+        '<div class="row"><button type="button" class="btn btn-primary" data-rb-action="apply"' + (canApply(res) ? '' : ' disabled') + '>Apply</button></div>';
     }
     if (rebalanceState) {
       const addedRows = timesheetGrid.getRows().length - rebalanceState.original.length;
@@ -2098,16 +2177,14 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   function applyRebalance() {
-    const rows = timesheetGrid.getRows();
-    const plan = currentPlan();
-    if (plan.moves.length === 0) return;
-    if (!rebalanceState) rebalanceState = { original: rows.map(r => r.slice()), moves: [] };
-    rebalanceState.moves = rebalanceState.moves.concat(plan.moves);
+    const ctx = draftCtx();
+    const res = resolveDraft(ctx.rowArrays, rebalanceDraft || [], ctx);
+    if (!canApply(res)) return;
+    if (!rebalanceState) rebalanceState = { original: ctx.rowArrays.map(r => r.slice()), moves: [] };
+    rebalanceState.moves = rebalanceState.moves.concat(res.moves);
     saveRebalanceState();
-    setTimesheetRows(applyMoves(rows, plan.moves));
+    setTimesheetRows(res.previewRows);
     persistTimesheetText();
-    rebalanceIncludeRound2 = false;
-    rebalanceOverrides = {};
     refresh({ replan: true });
   }
 
@@ -2164,8 +2241,19 @@ if (typeof module !== 'undefined' && module.exports) {
     const action = btn.dataset.rbAction;
     if (action === 'apply') applyRebalance();
     else if (action === 'undo') undoRebalance();
-    else if (action === 'continue') { rebalanceIncludeRound2 = true; renderRebalance(); }
-    else if (action === 'dl-original' && rebalanceState) downloadTimesheetXlsx(rebalanceState.original, 'timesheet-original');
+    else if (action === 'continue') { rebalanceIncludeRound2 = true; rebalanceDraft = null; renderRebalance(); }
+    else if (action === 'recalc') { rebalanceDraft = null; renderRebalance(); }
+    else if (action === 'draft-del') {
+      rebalanceDraft = (rebalanceDraft || []).filter(d => d.id !== Number(btn.dataset.draftId));
+      renderRebalance();
+    } else if (action === 'draft-add') {
+      const ctx = draftCtx();
+      const p = personOptions(extractEntries(ctx.rowArrays, ctx.mapping))[0];
+      if (!p) return;
+      const row = Object.assign({ nameKey: p.nameKey, name: p.name, sq: p.sq, origin: 'user' }, draftRowDefaults(ctx.rowArrays, ctx.mapping, p.nameKey, p.sq));
+      rebalanceDraft = (rebalanceDraft || []).concat(withDraftIds([row]));
+      renderRebalance();
+    } else if (action === 'dl-original' && rebalanceState) downloadTimesheetXlsx(rebalanceState.original, 'timesheet-original');
     else if (action === 'dl-new') downloadTimesheetXlsx(timesheetGrid.getRows(), 'timesheet-new');
     else if (action === 'copy-new') {
       const rows = timesheetGrid.getRows();
@@ -2187,10 +2275,34 @@ if (typeof module !== 'undefined' && module.exports) {
       fallbackCopy(text, done);
     }
   }
+  function draftRowFor(el) {
+    return (rebalanceDraft || []).find(d => d.id === Number(el.dataset.draftId)) || null;
+  }
   rebalanceContainer.addEventListener('change', (e) => {
-    if (!e.target.classList.contains('rb-target')) return;
-    rebalanceOverrides[e.target.dataset.nameKey] = e.target.value;
+    const field = e.target.dataset.field;
+    const d = field && field !== 'mh' ? draftRowFor(e.target) : null;
+    if (!d) return;
+    if (field === 'person') {
+      const ctx = draftCtx();
+      const cut = e.target.value.indexOf('|');
+      d.nameKey = e.target.value.slice(0, cut);
+      d.sq = e.target.value.slice(cut + 1);
+      const ent = extractEntries(ctx.rowArrays, ctx.mapping).find(x => x.nameKey === d.nameKey && x.sq === d.sq);
+      if (ent) d.name = ent.name;
+      Object.assign(d, draftRowDefaults(ctx.rowArrays, ctx.mapping, d.nameKey, d.sq));
+    } else if (field === 'day') {
+      d.day = Number(e.target.value);
+    } else {
+      d[field] = e.target.value;
+    }
     renderRebalance();
+  });
+  rebalanceContainer.addEventListener('input', (e) => {
+    if (e.target.dataset.field !== 'mh') return;
+    const d = draftRowFor(e.target);
+    if (!d) return;
+    d.mh = e.target.value;
+    updateDraftStatus();
   });
 
   // Run = refresh({ replan: true }): rebuild everything and start a fresh
@@ -2239,7 +2351,7 @@ if (typeof module !== 'undefined' && module.exports) {
   function renderTablesAndRebalance(replan) {
     clearBanners();
     rebalanceCard.hidden = true;
-    if (replan) { rebalanceIncludeRound2 = false; rebalanceOverrides = {}; }
+    if (replan) { rebalanceIncludeRound2 = false; rebalanceDraft = null; }
     table1Container.innerHTML = '';
     table2Container.innerHTML = '';
     lastTable1Rows = null;
