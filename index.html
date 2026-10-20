@@ -521,6 +521,39 @@ function diffTimesheets(original, current, appliedMoves) {
   return { header: ['Name-Surname', 'Squad', 'WO No.', 'Day', 'เดิม', 'ใหม่', 'แก้โดย'], rows: rows };
 }
 
+// Planner moves (1 MH each) -> editable draft rows, one per person / day /
+// from-WO / to-WO, in first-seen order. The UI adds the `id`.
+function movesToDraft(moves) {
+  const out = [], byKey = {};
+  moves.forEach(m => {
+    const k = [m.nameKey, m.sq, m.day, m.fromWoKey, m.toWoKey].join('|');
+    if (!byKey[k]) {
+      byKey[k] = { nameKey: m.nameKey, name: m.name, sq: m.sq, day: m.day, mh: 0, fromWoKey: m.fromWoKey, toWoKey: m.toWoKey, origin: 'plan' };
+      out.push(byKey[k]);
+    }
+    byKey[k].mh = Math.round((byKey[k].mh + m.mh) * 1e6) / 1e6;
+  });
+  return out;
+}
+
+// Starting values for a draft row the user adds (or re-points at another
+// person): from their biggest OPEX WO (else their first WO), to a CAPEX WO
+// that isn't the source (their own first, else the mapping's), on the
+// latest day the source has hours, 1 MH.
+function draftRowDefaults(rows, mapping, nameKey, sq) {
+  const sumDays = e => e.days.reduce((a, b) => a + b, 0);
+  const mine = extractEntries(rows, mapping).filter(e => e.nameKey === nameKey && e.sq === sq);
+  const opex = mine.filter(e => e.category === 'OPEX').sort((a, b) => sumDays(b) - sumDays(a));
+  const from = opex[0] || mine[0] || null;
+  const fromWoKey = from ? from.woKey : '';
+  const allCapex = Object.keys(mapping.map).filter(k => mapping.map[k].category === 'CAPEX');
+  const own = mine.filter(e => e.category === 'CAPEX').map(e => e.woKey);
+  const toWoKey = own.concat(allCapex).filter(k => k !== fromWoKey)[0] || '';
+  let day = 1;
+  if (from) for (let d = 31; d >= 1; d--) { if (from.days[d - 1] > 0) { day = d; break; } }
+  return { fromWoKey: fromWoKey, toWoKey: toWoKey, day: day, mh: 1 };
+}
+
 function diffCell(before, after) {
   const b = formatMH(before), a = formatMH(after);
   return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
@@ -823,7 +856,8 @@ if (typeof module !== 'undefined' && module.exports) {
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
-    takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, cellKey, cellTotals, diffTimesheets, diffCell,
+    takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, cellKey, cellTotals, diffTimesheets,
+    movesToDraft, draftRowDefaults, diffCell,
     extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
   };
 }

@@ -427,6 +427,32 @@ test('diffTimesheets: a deleted row shows ใหม่ blank as แก้เอ�
   assert.deepStrictEqual(App.diffTimesheets(dfOriginal(), current, []).rows, [['Dev1', 'S1', 'C1', 1, 8, '', 'แก้เอง']]);
 });
 
+// ---- movesToDraft / draftRowDefaults ----------------------------------------
+test('movesToDraft merges the planner\'s 1-MH moves into one row per person/day/WO pair', () => {
+  const rows = [row('Dev1', 'S1', 'C1', { 1: 8, 2: 8 }), row('Dev1', 'S1', 'O1', days(3, 11, 8))];
+  const plan = App.planRebalance(ctxFor(rows, [DEV('Dev1')]));
+  assert.deepStrictEqual(App.movesToDraft(plan.moves), [
+    { nameKey: 'dev1', name: 'Dev1', sq: 'S1', day: 11, mh: 2, fromWoKey: 'O1', toWoKey: 'C1', origin: 'plan' }
+  ]);
+});
+
+test('movesToDraft keeps first-seen order across days', () => {
+  const m = (day, mh) => ({ nameKey: 'a', name: 'A', sq: 'S', day: day, mh: mh, fromWoKey: 'O1', toWoKey: 'C1' });
+  const draft = App.movesToDraft([m(4, 1), m(3, 0.5), m(4, 1)]);
+  assert.deepStrictEqual(draft.map(d => [d.day, d.mh]), [[4, 2], [3, 0.5]]);
+});
+
+test('draftRowDefaults: biggest OPEX WO, own CAPEX WO, latest day with hours, 1 MH', () => {
+  const rows = [row('Ann', 'S1', 'C2', { 1: 8 }), row('Ann', 'S1', 'O1', { 20: 8, 22: 4 }), row('Ann', 'S1', 'Z01', { 23: 8 })];
+  assert.deepStrictEqual(App.draftRowDefaults(rows, mapping, 'ann', 'S1'), { fromWoKey: 'O1', toWoKey: 'C2', day: 22, mh: 1 });
+});
+
+test('draftRowDefaults without OPEX takes the first WO and a different CAPEX WO', () => {
+  const rows = [row('Bob', 'S1', 'C1', { 1: 8 })];
+  assert.deepStrictEqual(App.draftRowDefaults(rows, mapping, 'bob', 'S1'), { fromWoKey: 'C1', toWoKey: 'C2', day: 1, mh: 1 });
+  assert.deepStrictEqual(App.draftRowDefaults([], mapping, 'nobody', 'S1'), { fromWoKey: '', toWoKey: 'C1', day: 1, mh: 1 });
+});
+
 process.on('exit', () => {
   if (failures > 0) { console.log(failures + ' failing test(s)'); process.exitCode = 1; }
   else { console.log('All rebalance tests passed'); }
