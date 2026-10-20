@@ -11,7 +11,8 @@ const requiredIds = [
   'table2-container', 'copy-table2-btn', 'download-table2-btn',
   'role-ceilings-grid', 'role-ceilings-add-row-btn', 'role-ceilings-reset-btn', 'working-days-input', 'working-days-hint', 'people-roles-grid', 'people-roles-add-row-btn', 'people-roles-reset-btn', 'role-options',
   'rebalance-card', 'rebalance-container',
-  'changelog-card', 'changelog-container', 'copy-changelog-btn', 'download-changelog-btn'
+  'changelog-card', 'changelog-container', 'copy-changelog-btn', 'download-changelog-btn',
+  'rebalance-badge', 'results-empty', 'kpi-tiles', 'results-over-banner', 'rebalance-empty', 'timesheet-rebalance-strip', 'xlsx-dropzone'
 ];
 
 const missing = requiredIds.filter(id => !html.includes('id="' + id + '"'));

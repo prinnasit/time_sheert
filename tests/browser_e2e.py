@@ -203,6 +203,41 @@ def setup_over_80(page):
 
 # ---- Run + banners ---------------------------------------------------------
 
+def first_visit_shows_only_the_timesheet_tab(page):
+    expect(view_el(page, 'timesheet')).to_be_visible()
+    for name in ('results', 'rebalance', 'settings'):
+        expect(view_el(page, name)).to_be_hidden()
+    expect(page.locator('[data-view-link="timesheet"]')).to_have_attribute('aria-current', 'page')
+
+
+def tabs_follow_the_hash_across_reload_and_back(page):
+    show(page, 'settings')
+    assert page.url.endswith('#settings'), page.url
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    expect(view_el(page, 'settings')).to_be_visible()
+    show(page, 'results')
+    page.go_back()
+    expect(view_el(page, 'settings')).to_be_visible()
+
+
+def run_success_jumps_to_results_but_errors_stay(page):
+    click(page, '#clear-mapping-btn')
+    show(page, 'timesheet')
+    click(page, '#run-btn')
+    expect(page.locator('#banners')).to_contain_text('กรุณาวางตาราง WO Mapping ก่อนกด Run')
+    expect(view_el(page, 'timesheet')).to_be_visible()
+    setup_over_80(page)
+    expect(view_el(page, 'results')).to_be_visible()
+
+
+def empty_states_show_before_any_run(page):
+    show(page, 'results')
+    expect(page.locator('#results-empty')).to_be_visible()
+    show(page, 'rebalance')
+    expect(page.locator('#rebalance-empty')).to_be_visible()
+
+
 def run_without_mapping_shows_error(page):
     click(page, '#clear-mapping-btn')
     click(page, '#run-btn')
@@ -786,6 +821,10 @@ def role_ceilings_reset_restores_defaults(page):
 
 
 TESTS = [
+    ('the first visit shows only the Timesheet tab', first_visit_shows_only_the_timesheet_tab),
+    ('tabs follow the URL hash across a reload and the Back button', tabs_follow_the_hash_across_reload_and_back),
+    ('a successful Run jumps to ผลลัพธ์; a Run error stays on Timesheet', run_success_jumps_to_results_but_errors_stay),
+    ('ผลลัพธ์ and แก้เกิน 80% show an empty state before any Run', empty_states_show_before_any_run),
     ('Run with an empty mapping shows an error banner', run_without_mapping_shows_error),
     ('Run with an empty timesheet shows an error banner', run_without_timesheet_shows_error),
     ('Run warns about unmapped and duplicate WOs but still builds the tables', run_warns_about_unmapped_and_duplicate_wos),

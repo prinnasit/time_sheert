@@ -2,6 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WO Timesheet Summary</title>
 </head>
 <body>
@@ -964,12 +965,24 @@ if (typeof module !== 'undefined' && module.exports) {
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     background: var(--bg);
     color: var(--text);
-    max-width: 880px;
-    margin: 0 auto;
-    padding: 40px 20px 64px;
+    margin: 0;
+    padding: 0 0 64px;
     line-height: 1.5;
   }
-  header.page-head { margin-bottom: 28px; }
+  .app-bar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: 0 1px 2px rgba(20,24,34,.05); }
+  .app-bar-inner, main.page { max-width: 1180px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+  .app-bar-inner { padding-top: 16px; }
+  main.page { padding-top: 24px; }
+  nav.tabs { display: flex; gap: 4px; margin-top: 10px; overflow-x: auto; }
+  nav.tabs a { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .92rem; border-bottom: 3px solid transparent; white-space: nowrap; }
+  nav.tabs a:hover { color: var(--text); }
+  nav.tabs a.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav.tabs a.tab-settings { margin-left: auto; }
+  .tab-num { width: 22px; height: 22px; border-radius: 50%; background: var(--surface-alt); border: 1px solid var(--border); font-size: .75rem; display: inline-flex; align-items: center; justify-content: center; }
+  nav.tabs a.active .tab-num { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+  .tab-badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--error-text); color: var(--surface); font-size: .72rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .empty-state { padding: 48px 24px; text-align: center; color: var(--text-muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+  .empty-state a { color: var(--accent); font-weight: 600; }
   h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -.01em; }
   .subtitle { color: var(--text-muted); font-size: 0.92rem; margin: 0; }
   .card {
@@ -981,15 +994,6 @@ if (typeof module !== 'undefined' && module.exports) {
     margin-bottom: 20px;
   }
   .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-  .step-badge {
-    flex: none;
-    width: 26px; height: 26px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-contrast);
-    font-size: 0.8rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-  }
   .card-head h2 { font-size: 1.02rem; margin: 0; }
   .card-desc { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 12px; }
   textarea {
@@ -1033,7 +1037,7 @@ if (typeof module !== 'undefined' && module.exports) {
     padding: 11px 28px;
   }
   .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-  .run-row { margin: 4px 0 6px; }
+  .run-row { display: flex; align-items: center; gap: 14px; margin: 4px 0 6px; }
   .banner {
     padding: 10px 14px;
     border-radius: var(--radius-sm);
@@ -1146,101 +1150,131 @@ if (typeof module !== 'undefined' && module.exports) {
   #rebalance-container td.rb-row-msg { white-space: normal; min-width: 16rem; }
 </style>
 
-<header class="page-head">
-  <h1>WO Timesheet Summary</h1>
-  <p class="subtitle">แยก Work Order เป็น CAPEX / OPEX / Non Charge อัตโนมัติ พร้อมสรุปและส่งออกได้ทันที</p>
+<header class="app-bar">
+  <div class="app-bar-inner">
+    <div class="brand">
+      <h1>WO Timesheet Summary</h1>
+      <p class="subtitle">แยก Work Order เป็น CAPEX / OPEX / Non Charge อัตโนมัติ พร้อมสรุปและส่งออกได้ทันที</p>
+    </div>
+    <nav class="tabs" aria-label="เมนูหลัก">
+      <a href="#timesheet" data-view-link="timesheet"><span class="tab-num">1</span>Timesheet</a>
+      <a href="#results" data-view-link="results"><span class="tab-num">2</span>ผลลัพธ์</a>
+      <a href="#rebalance" data-view-link="rebalance"><span class="tab-num">3</span>แก้เกิน 80%<span id="rebalance-badge" class="tab-badge" hidden></span></a>
+      <a href="#settings" data-view-link="settings" class="tab-settings">⚙ ตั้งค่า</a>
+    </nav>
+  </div>
 </header>
 
-<section class="card">
-  <div class="card-head"><span class="step-badge">1</span><h2>WO Mapping</h2></div>
-  <p class="card-desc">พิมพ์หรือวาง (paste) ตาราง WO No. / Category / WO Name ทีละช่อง — วางข้อมูลก้อนใหญ่จาก Excel ลงในช่องแรกได้เลย มันจะกระจายลงทุกช่องให้อัตโนมัติเหมือนใน Excel</p>
-  <div id="mapping-grid"></div>
-  <button id="mapping-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <textarea id="mapping-input" hidden></textarea>
-  <div class="row">
-    <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
-    <button id="mapping-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
-    <span id="mapping-status" class="status-text"></span>
-  </div>
-</section>
-
-<section class="card">
-  <div class="card-head"><span class="step-badge">2</span><h2>Timesheet Input</h2></div>
-  <p class="card-desc">พิมพ์หรือวางข้อมูลทีละช่อง (เลื่อนดูขวาได้ถึง Day31) หรืออัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx</p>
-  <div id="timesheet-grid"></div>
-  <button id="timesheet-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <textarea id="timesheet-input" hidden></textarea>
-  <div class="row">
-    <label class="btn">Upload .xlsx<input type="file" id="xlsx-upload" accept=".xlsx" hidden></label>
-    <span id="upload-status" class="status-text"></span>
-  </div>
-</section>
-
-<section class="card">
-  <div class="card-head"><span class="step-badge">3</span><h2>Role Ceilings</h2></div>
-  <p class="card-desc">เพดาน Man-Day ต่อคนต่อเดือนของแต่ละตำแหน่ง (Z01-Z03 / CAPEX / OPEX) — ใช้เลือกว่าจะแก้ Timesheet ของใครเมื่อ squad มี OPEX เกิน 80% แก้ไขได้และระบบจำให้ เพดานจริง = ค่าในตาราง × วันทำงาน ÷ 20</p>
-  <div id="role-ceilings-grid"></div>
-  <button id="role-ceilings-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <div class="row">
-    <button id="role-ceilings-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
-    <label class="status-text" for="working-days-input">วันทำงานเดือนนี้:</label>
-    <input id="working-days-input" type="number" min="1" max="31" step="1">
-    <span id="working-days-hint" class="status-text"></span>
-  </div>
-</section>
-
-<section class="card">
-  <div class="card-head"><span class="step-badge">4</span><h2>People &rarr; Role</h2></div>
-  <p class="card-desc">ใส่ชื่อ (ตรงกับ Name-Surname ใน Timesheet) และตำแหน่งของแต่ละคน — วางจาก Excel ได้ ระบบจำให้ เดือนถัดไปไม่ต้องกรอกใหม่ คนที่ยังไม่มีตำแหน่งจะไม่ถูกเลือกมาแก้</p>
-  <div id="people-roles-grid"></div>
-  <button id="people-roles-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <div class="row">
-    <button id="people-roles-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
-  </div>
-  <datalist id="role-options"></datalist>
-</section>
-
-<div class="run-row">
-  <button id="run-btn" class="btn btn-primary" type="button">&#9654; Run</button>
-</div>
+<main class="page">
 <div id="banners"></div>
 
-<section class="card">
-  <div class="card-head"><h2>Table 1 &middot; Squad &times; WO (CAPEX / OPEX / Non Charge) &mdash; หน่วย: Man-Day</h2></div>
-  <div class="table-actions">
-    <button id="copy-table1-btn" class="btn" type="button">Copy</button>
-    <button id="download-table1-btn" class="btn" type="button">Download CSV</button>
-  </div>
-  <div id="table1-container" class="table-scroll"></div>
-  <p class="card-desc" style="margin-top: 12px;">"Remaining (เดือนที่แล้ว)" พิมพ์เองได้ (จำไว้ให้) ส่วน "Remaining (เดือนนี้)" คำนวณอัตโนมัติ = เดือนที่แล้ว − ที่ทำได้เดือนนี้ พอจะเริ่มเดือนถัดไป กดปุ่มด้านล่างเพื่อเลื่อนยอดคงเหลือ</p>
-  <div class="row">
-    <button id="new-month-btn" class="btn" type="button">&#8635; ขึ้นเดือนใหม่</button>
-    <span id="new-month-status" class="status-text"></span>
+<section class="view" data-view="timesheet">
+  <div id="timesheet-rebalance-strip" class="banner warn strip" hidden></div>
+  <section class="card">
+    <div class="card-head"><h2>Timesheet Input</h2></div>
+    <p class="card-desc">อัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx หรือพิมพ์ / วางข้อมูลลงตารางทีละช่อง (เลื่อนดูขวาได้ถึง Day31)</p>
+    <label id="xlsx-dropzone" class="dropzone">
+      <input type="file" id="xlsx-upload" accept=".xlsx" hidden>
+      <span class="dropzone-icon" aria-hidden="true">📄</span>
+      <span class="dropzone-text"><strong>ลากไฟล์ .xlsx มาวางตรงนี้</strong> หรือ คลิกเพื่อเลือกไฟล์</span>
+      <span id="upload-status" class="status-text"></span>
+    </label>
+    <div id="timesheet-grid"></div>
+    <button id="timesheet-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <textarea id="timesheet-input" hidden></textarea>
+    <div class="row">
+      <label class="status-text" for="working-days-input">วันทำงานเดือนนี้:</label>
+      <input id="working-days-input" type="number" min="1" max="31" step="1">
+      <span id="working-days-hint" class="status-text"></span>
+    </div>
+  </section>
+  <div class="run-row">
+    <button id="run-btn" class="btn btn-primary" type="button">&#9654; Run</button>
+    <span class="status-text">กด Run แล้วระบบจะพาไปหน้าผลลัพธ์</span>
   </div>
 </section>
 
-<section class="card">
-  <div class="card-head"><h2>Table 2 &middot; % CAPEX / OPEX per Squad</h2></div>
-  <div class="table-actions">
-    <button id="copy-table2-btn" class="btn" type="button">Copy</button>
-    <button id="download-table2-btn" class="btn" type="button">Download CSV</button>
-  </div>
-  <div id="table2-container" class="table-scroll"></div>
+<section class="view" data-view="results" hidden>
+  <div id="results-empty" class="empty-state">ยังไม่มีผลลัพธ์ — ไปที่แท็บ <a href="#timesheet">Timesheet</a> แล้วกด Run</div>
+  <div id="kpi-tiles" class="kpi-tiles" hidden></div>
+  <div id="results-over-banner" class="banner error" hidden></div>
+
+  <section class="card">
+    <div class="card-head"><h2>Table 2 &middot; % CAPEX / OPEX per Squad</h2></div>
+    <div class="table-actions">
+      <button id="copy-table2-btn" class="btn" type="button">Copy</button>
+      <button id="download-table2-btn" class="btn" type="button">Download CSV</button>
+    </div>
+    <div id="table2-container" class="table-scroll"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Table 1 &middot; Squad &times; WO (CAPEX / OPEX / Non Charge) &mdash; หน่วย: Man-Day</h2></div>
+    <div class="table-actions">
+      <button id="copy-table1-btn" class="btn" type="button">Copy</button>
+      <button id="download-table1-btn" class="btn" type="button">Download CSV</button>
+    </div>
+    <div id="table1-container" class="table-scroll"></div>
+    <p class="card-desc" style="margin-top: 12px;">"Remaining (เดือนที่แล้ว)" พิมพ์เองได้ (จำไว้ให้) ส่วน "Remaining (เดือนนี้)" คำนวณอัตโนมัติ = เดือนที่แล้ว − ที่ทำได้เดือนนี้ พอจะเริ่มเดือนถัดไป กดปุ่มด้านล่างเพื่อเลื่อนยอดคงเหลือ</p>
+    <div class="row">
+      <button id="new-month-btn" class="btn" type="button">&#8635; ขึ้นเดือนใหม่</button>
+      <span id="new-month-status" class="status-text"></span>
+    </div>
+  </section>
 </section>
 
-<section class="card" id="rebalance-card" hidden>
-  <div class="card-head"><h2>Rebalance &middot; ลด OPEX ให้ไม่เกิน 80%</h2></div>
-  <div id="rebalance-container"></div>
+<section class="view" data-view="rebalance" hidden>
+  <div id="rebalance-empty" class="empty-state">ไม่มี squad ที่ OPEX เกิน 80% 🎉</div>
+  <section class="card" id="rebalance-card" hidden>
+    <div class="card-head"><h2>Rebalance &middot; ลด OPEX ให้ไม่เกิน 80%</h2></div>
+    <div id="rebalance-container"></div>
+  </section>
+  <section class="card" id="changelog-card" hidden>
+    <div class="card-head"><h2>ประวัติการแก้ไข Timesheet</h2></div>
+    <div class="table-actions">
+      <button id="copy-changelog-btn" class="btn" type="button">Copy</button>
+      <button id="download-changelog-btn" class="btn" type="button">Download CSV</button>
+    </div>
+    <div id="changelog-container" class="table-scroll"></div>
+  </section>
 </section>
 
-<section class="card" id="changelog-card" hidden>
-  <div class="card-head"><h2>ประวัติการแก้ไข Timesheet</h2></div>
-  <div class="table-actions">
-    <button id="copy-changelog-btn" class="btn" type="button">Copy</button>
-    <button id="download-changelog-btn" class="btn" type="button">Download CSV</button>
-  </div>
-  <div id="changelog-container" class="table-scroll"></div>
+<section class="view" data-view="settings" hidden>
+  <section class="card">
+    <div class="card-head"><h2>WO Mapping</h2></div>
+    <p class="card-desc">พิมพ์หรือวาง (paste) ตาราง WO No. / Category / WO Name ทีละช่อง — วางข้อมูลก้อนใหญ่จาก Excel ลงในช่องแรกได้เลย มันจะกระจายลงทุกช่องให้อัตโนมัติเหมือนใน Excel</p>
+    <div id="mapping-grid"></div>
+    <button id="mapping-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <textarea id="mapping-input" hidden></textarea>
+    <div class="row">
+      <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
+      <button id="mapping-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+      <span id="mapping-status" class="status-text"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Role Ceilings</h2></div>
+    <p class="card-desc">เพดาน Man-Day ต่อคนต่อเดือนของแต่ละตำแหน่ง (Z01-Z03 / CAPEX / OPEX) — ใช้เลือกว่าจะแก้ Timesheet ของใครเมื่อ squad มี OPEX เกิน 80% แก้ไขได้และระบบจำให้ เพดานจริง = ค่าในตาราง × วันทำงาน ÷ 20 (วันทำงานตั้งได้ในแท็บ Timesheet)</p>
+    <div id="role-ceilings-grid"></div>
+    <button id="role-ceilings-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <div class="row">
+      <button id="role-ceilings-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>People &rarr; Role</h2></div>
+    <p class="card-desc">ใส่ชื่อ (ตรงกับ Name-Surname ใน Timesheet) และตำแหน่งของแต่ละคน — วางจาก Excel ได้ ระบบจำให้ เดือนถัดไปไม่ต้องกรอกใหม่ คนที่ยังไม่มีตำแหน่งจะไม่ถูกเลือกมาแก้</p>
+    <div id="people-roles-grid"></div>
+    <button id="people-roles-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <div class="row">
+      <button id="people-roles-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+    </div>
+    <datalist id="role-options"></datalist>
+  </section>
 </section>
+</main>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
@@ -2330,7 +2364,12 @@ if (typeof module !== 'undefined' && module.exports) {
     renderChangeLog();
     markChangedCells();
   }
-  runBtn.addEventListener('click', () => refresh({ replan: true }));
+  // A Run that built the tables goes to the results tab; one that stopped on
+  // an error stays put (the error banner is visible on every tab).
+  runBtn.addEventListener('click', () => {
+    refresh({ replan: true });
+    if (lastTable2) goToView('results');
+  });
 
   // After Apply, editing the timesheet refreshes tables, summary, history and
   // highlights on its own — 300 ms after the last keystroke, so typing a
@@ -2622,6 +2661,32 @@ if (typeof module !== 'undefined' && module.exports) {
   copyTable2Btn.addEventListener('click', () => copyRows(lastTable2Rows, lastTable2 ? buildTable2ClipboardHTML(lastTable2, lastBefore && lastBefore.table2) : '', copyTable2Btn));
   downloadTable1Btn.addEventListener('click', () => downloadRows(lastTable1Rows, 'wo-summary'));
   downloadTable2Btn.addEventListener('click', () => downloadRows(lastTable2Rows, 'wo-percent'));
+
+  // -- Views (tabs) -----------------------------------------------------------
+  // One view visible at a time, picked by location.hash — so a reload keeps
+  // the tab and the browser's Back button moves between tabs.
+  const VIEWS = ['timesheet', 'results', 'rebalance', 'settings'];
+  const viewEls = Array.from(document.querySelectorAll('section.view'));
+  const viewLinks = Array.from(document.querySelectorAll('[data-view-link]'));
+  function currentViewFromHash() {
+    const name = location.hash.replace(/^#/, '');
+    return VIEWS.indexOf(name) >= 0 ? name : 'timesheet';
+  }
+  function showView(name) {
+    viewEls.forEach(el => { el.hidden = el.dataset.view !== name; });
+    viewLinks.forEach(a => {
+      const on = a.dataset.viewLink === name;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+  }
+  function goToView(name) {
+    if (location.hash !== '#' + name) location.hash = name;
+    showView(name);
+  }
+  window.addEventListener('hashchange', () => showView(currentViewFromHash()));
+  showView(currentViewFromHash());
 
   // Restored rebalance (after a reload): show Undo + the change log without
   // needing Run. Everything they touch is declared above; wrapped so a bad
