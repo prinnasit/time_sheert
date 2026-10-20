@@ -222,9 +222,10 @@ def apply_then_undo_round_trips_the_timesheet(page):
     expect(table1_cell(page, 'S1', 'C1')).to_have_text('2.00 → 2.25')
     expect(table1_cell(page, 'S1', 'C1')).to_have_class(re.compile('cell-changed'))
     expect(table1_cell(page, 'S1', 'O1')).to_have_text('9.00 → 8.75')
-    log_row = page.locator('#changelog-container tbody tr')
-    expect(log_row).to_have_count(1)
-    expect(log_row.first.locator('td')).to_have_text(['Dev1', 'S1', 'O1', 'C1', '11', '2'])
+    log = page.locator('#changelog-container tbody tr')
+    expect(log).to_have_count(2)
+    expect(log.nth(0).locator('td')).to_have_text(['Dev1', 'S1', 'C1', '11', '', '2', 'Rebalance'])
+    expect(log.nth(1).locator('td')).to_have_text(['Dev1', 'S1', 'O1', '11', '8', '6', 'Rebalance'])
 
     page.click('[data-rb-action="undo"]')
     expect(opex_day11).to_have_value('8')
@@ -275,7 +276,7 @@ def target_wo_dropdown_redirects_the_move(page):
     new_row = grid_row_where(page, 'timesheet-grid', 2, 'C2')
     expect(new_row.locator('input').nth(0)).to_have_value('Dev1')
     expect(new_row.locator('input').nth(day_col(11))).to_have_value('2')
-    expect(page.locator('#changelog-container tbody tr td').nth(3)).to_have_text('C2')
+    expect(page.locator('#changelog-container tbody tr').nth(1).locator('td')).to_have_text(['Dev1', 'S1', 'C2', '11', '', '2', 'Rebalance'])
 
 
 def people_without_a_role_are_skipped_with_a_reason(page):
@@ -355,6 +356,89 @@ def copy_new_timesheet_warns_about_added_rows(page):
     page.locator('#rebalance-container select.rb-target').select_option('C2')  # Dev1 has no C2 row
     page.click('[data-rb-action="apply"]')
     expect(page.locator('#rebalance-container')).to_contain_text('มีแถวใหม่ 1 แถวต่อท้าย')
+
+
+def after_apply_editing_a_cell_refreshes_tables_without_run(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    expect(opex_cell(page, 'S1')).to_have_text('79.55%')
+    grid_cell(page, 'timesheet-grid', 1, day_col(10)).fill('7')  # O1 day 10: 8 -> 7
+    grid_cell(page, 'timesheet-grid', 0, day_col(10)).fill('1')  # C1 day 10: blank -> 1
+    expect(opex_cell(page, 'S1')).to_have_text('78.41%')         # 69 / 88, no Run click
+    expect(summary_row(page, 'S1').locator('td').nth(2)).to_have_text('81.82% → 78.41%')
+    log = page.locator('#changelog-container tbody tr')
+    expect(log).to_have_count(4)
+    expect(log.nth(0).locator('td')).to_have_text(['Dev1', 'S1', 'C1', '10', '', '1', 'แก้เอง'])
+    expect(log.nth(1).locator('td')).to_have_text(['Dev1', 'S1', 'C1', '11', '', '2', 'Rebalance'])
+    expect(log.nth(2).locator('td')).to_have_text(['Dev1', 'S1', 'O1', '10', '8', '7', 'แก้เอง'])
+    expect(log.nth(3).locator('td')).to_have_text(['Dev1', 'S1', 'O1', '11', '8', '6', 'Rebalance'])
+
+
+def after_apply_changed_cells_are_highlighted_with_the_old_value(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    opex11 = grid_cell(page, 'timesheet-grid', 1, day_col(11))
+    capex11 = grid_cell(page, 'timesheet-grid', 0, day_col(11))
+    expect(opex11).to_have_class(re.compile('cell-changed'))
+    expect(opex11).to_have_attribute('title', 'เดิม: 8')
+    expect(capex11).to_have_attribute('title', 'เดิม: ว่าง')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).not_to_have_class(re.compile('cell-changed'))
+    opex11.fill('8')   # put the original values back by hand
+    capex11.fill('')
+    expect(opex11).not_to_have_class(re.compile('cell-changed'))
+    expect(page.locator('#changelog-card')).to_be_hidden()
+    expect(opex_cell(page, 'S1')).to_have_text('81.82%')
+
+
+def editing_over_a_rebalance_cell_counts_as_manual(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    grid_cell(page, 'timesheet-grid', 1, day_col(11)).fill('5')
+    expect(page.locator('#changelog-container tbody tr').nth(1).locator('td')).to_have_text(['Dev1', 'S1', 'O1', '11', '8', '5', 'แก้เอง'])
+
+
+def typing_in_the_timesheet_after_apply_keeps_focus(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    cell = grid_cell(page, 'timesheet-grid', 1, day_col(10))
+    cell.click()
+    page.keyboard.press('Control+A')
+    page.keyboard.type('7')
+    expect(opex_cell(page, 'S1')).to_have_text('79.31%')  # 69 / 87, after the auto refresh
+    assert cell.evaluate('el => el === document.activeElement'), 'focus left the cell after the auto refresh'
+
+
+def manual_edits_survive_a_reload(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    grid_cell(page, 'timesheet-grid', 1, day_col(10)).fill('7')
+    expect(page.locator('#changelog-container')).to_contain_text('แก้เอง')
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    expect(page.locator('#changelog-container')).to_contain_text('แก้เอง')
+    expect(page.locator('#changelog-container')).to_contain_text('Rebalance')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).to_have_class(re.compile('cell-changed'))
+
+
+def undo_after_manual_edits_restores_the_original(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    grid_cell(page, 'timesheet-grid', 1, day_col(10)).fill('7')
+    expect(opex_cell(page, 'S1')).to_have_text('79.31%')
+    page.click('[data-rb-action="undo"]')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).to_have_value('8')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_value('8')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(10))).not_to_have_class(re.compile('cell-changed'))
+    expect(page.locator('#changelog-card')).to_be_hidden()
+
+
+def before_apply_editing_waits_for_run(page):
+    setup_over_80(page)
+    grid_cell(page, 'timesheet-grid', 1, day_col(3)).fill('0')
+    page.wait_for_timeout(700)  # longer than the 300 ms auto refresh would take
+    expect(opex_cell(page, 'S1')).to_have_text('81.82%')
+    page.click('#run-btn')
+    expect(opex_cell(page, 'S1')).to_have_text('80.00%')  # 64 / 80
 
 
 def downloaded_new_timesheet_uploads_back_with_the_edits(page):
@@ -557,6 +641,13 @@ TESTS = [
     ('after Apply adds a row, the card says how many rows were added', copy_new_timesheet_warns_about_added_rows),
     ('after Apply the card shows CAPEX/OPEX % per squad (เดิม → ใหม่) with a Copy button', apply_shows_a_capex_opex_summary_per_squad_in_the_card),
     ('the summary flags a squad that is still over 80% in red', summary_flags_a_squad_still_over_80),
+    ('after Apply, editing a timesheet cell refreshes Table 2 / summary / history without Run', after_apply_editing_a_cell_refreshes_tables_without_run),
+    ('after Apply, changed cells are yellow with "เดิม: …", and clear when typed back', after_apply_changed_cells_are_highlighted_with_the_old_value),
+    ('typing over a cell Rebalance changed is logged as แก้เอง', editing_over_a_rebalance_cell_counts_as_manual),
+    ('the auto refresh after Apply keeps focus in the cell being typed in', typing_in_the_timesheet_after_apply_keeps_focus),
+    ('manual edits and their history survive a reload', manual_edits_survive_a_reload),
+    ('Undo after manual edits restores the original timesheet', undo_after_manual_edits_restores_the_original),
+    ('before Apply, editing the timesheet still waits for Run', before_apply_editing_waits_for_run),
     ('the downloaded new timesheet .xlsx uploads back with the edits', downloaded_new_timesheet_uploads_back_with_the_edits),
     ('Remaining (เดือนนี้) = last month − this month and syncs to the Mapping grid', remaining_this_month_is_last_month_minus_actual),
     ('ขึ้นเดือนใหม่ rolls this month\'s Remaining into last month', new_month_rolls_this_month_into_last_month),

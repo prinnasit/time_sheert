@@ -891,23 +891,6 @@ function applyMoves(rowArrays, moves) {
   return rows;
 }
 
-function buildChangeLog(moves) {
-  const order = [];
-  const byKey = {};
-  moves.forEach(m => {
-    const key = [m.nameKey, m.sq, m.fromWoNo, m.toWoNo, m.day].join('|');
-    if (!byKey[key]) {
-      byKey[key] = [m.name, m.sq, m.fromWoNo, m.toWoNo, m.day, 0];
-      order.push(key);
-    }
-    byKey[key][5] += m.mh;
-  });
-  return {
-    header: ['Name-Surname', 'Squad', 'From WO', 'To WO', 'Day', 'MH'],
-    rows: order.map(k => byKey[k])
-  };
-}
-
 function summarizeRows(rowArrays, mapping) {
   const parsed = parseDataRows(rowArrays);
   const classified = classifyRows(parsed.rows, mapping);
@@ -924,7 +907,7 @@ if (typeof module !== 'undefined' && module.exports) {
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
     takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, cellKey, cellTotals, diffTimesheets,
     movesToDraft, draftRowDefaults, resolveDraft, diffCell,
-    extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
+    extractEntries, planRebalance, applyMoves, summarizeRows
   };
 }
 </script>
@@ -1142,6 +1125,7 @@ if (typeof module !== 'undefined' && module.exports) {
   #rebalance-container select { padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; }
   #rebalance-container .banner { margin-bottom: 8px; }
   #rebalance-container .row { margin-top: 12px; }
+  table.input-grid input.cell-changed { background: var(--warn-bg); color: var(--warn-text); font-weight: 600; }
 </style>
 
 <header class="page-head">
@@ -1632,7 +1616,7 @@ if (typeof module !== 'undefined' && module.exports) {
   const timesheetGrid = createGridEditor(timesheetGridMount, TIMESHEET_COLUMNS, timesheetAddRowBtn, 8, () => {
     timesheetInput.value = serializeGridToTSV(TIMESHEET_COLUMNS.map(c => c.label), timesheetGrid);
     timesheetInput.dispatchEvent(new Event('input', { bubbles: true }));
-    if (rebalanceState) persistTimesheetText();
+    if (rebalanceState) { persistTimesheetText(); scheduleAutoRefresh(); }
   }, true);
 
   const ROLE_CEILINGS_STORAGE_KEY = 'woTimesheetSummary.roleCeilings';
@@ -2124,27 +2108,28 @@ if (typeof module !== 'undefined' && module.exports) {
     persistTimesheetText();
     rebalanceIncludeRound2 = false;
     rebalanceOverrides = {};
-    runBtn.click();
+    refresh({ replan: true });
   }
 
   function undoRebalance() {
     if (!rebalanceState) return;
+    clearTimeout(autoRefreshTimer);
     setTimesheetRows(rebalanceState.original);
     clearRebalanceState();
     lastBefore = null; changelogCard.hidden = true;
-    runBtn.click();
+    refresh({ replan: true });
   }
 
   let lastChangeLogRows = null;
 
   function renderChangeLog() {
-    if (!rebalanceState || rebalanceState.moves.length === 0) {
+    const log = rebalanceState ? diffTimesheets(rebalanceState.original, timesheetGrid.getRows(), rebalanceState.moves) : null;
+    if (!log || log.rows.length === 0) {
       changelogCard.hidden = true;
       changelogContainer.innerHTML = '';
       lastChangeLogRows = null;
       return;
     }
-    const log = buildChangeLog(rebalanceState.moves);
     lastChangeLogRows = log;
     let html = '<table><thead><tr>' + log.header.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr></thead><tbody>';
     log.rows.forEach(r => { html += '<tr>' + r.map(c => '<td>' + escapeHtml(typeof c === 'number' ? (Math.round(c * 100) / 100) : c) + '</td>').join('') + '</tr>'; });
@@ -2157,7 +2142,7 @@ if (typeof module !== 'undefined' && module.exports) {
     let html = '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;"><tr>' +
       log.header.map(h => clipCell('td', h, GRID_HEADER_BG, 'left', true)).join('') + '</tr>';
     log.rows.forEach(r => {
-      html += '<tr>' + r.map((c, i) => clipCell('td', typeof c === 'number' ? String(Math.round(c * 100) / 100) : c, '#ffffff', i >= 4 ? 'right' : 'left', false)).join('') + '</tr>';
+      html += '<tr>' + r.map((c, i) => clipCell('td', typeof c === 'number' ? String(Math.round(c * 100) / 100) : c, '#ffffff', i >= 3 && i <= 5 ? 'right' : 'left', false)).join('') + '</tr>';
     });
     return html + '</table>';
   }
@@ -2208,9 +2193,53 @@ if (typeof module !== 'undefined' && module.exports) {
     renderRebalance();
   });
 
-  runBtn.addEventListener('click', () => {
+  // Run = refresh({ replan: true }): rebuild everything and start a fresh
+  // rebalance suggestion. The auto refresh after Apply uses replan: false so
+  // in-progress choices (round 2, the draft) survive.
+  function refresh(opts) {
+    renderTablesAndRebalance(!!(opts && opts.replan));
+    renderChangeLog();
+    markChangedCells();
+  }
+  runBtn.addEventListener('click', () => refresh({ replan: true }));
+
+  // After Apply, editing the timesheet refreshes tables, summary, history and
+  // highlights on its own — 300 ms after the last keystroke, so typing a
+  // number doesn't recompute on every key. Only cell classes/titles change
+  // in the grid, never its inputs, so the cursor stays put.
+  const AUTO_REFRESH_MS = 300;
+  let autoRefreshTimer = null;
+  function scheduleAutoRefresh() {
+    clearTimeout(autoRefreshTimer);
+    autoRefreshTimer = setTimeout(() => refresh({ replan: false }), AUTO_REFRESH_MS);
+  }
+
+  // Yellow + "เดิม: x" on every timesheet day cell whose value differs from
+  // the original (compared by person/squad/WO, not row position).
+  function markChangedCells() {
+    const before = rebalanceState ? cellTotals(rebalanceState.original).totals : null;
+    const after = rebalanceState ? cellTotals(timesheetGrid.getRows()).totals : null;
+    const round = v => Math.round(v * 1e6) / 1e6;
+    timesheetGridMount.querySelectorAll('tbody tr').forEach(tr => {
+      const cells = Array.from(tr.querySelectorAll('input, select'));
+      const key = cellKey(normalizeKey(String(cells[0].value).trim()), String(cells[1].value).trim() || '(Unspecified)', normalizeWO(cells[2].value));
+      for (let d = 0; d < 31; d++) {
+        const el = cells[5 + d];
+        if (!el) continue;
+        const b = before && before[key] ? before[key][d] : 0;
+        const a = after && after[key] ? after[key][d] : 0;
+        const changed = !!before && round(b) !== round(a);
+        el.classList.toggle('cell-changed', changed);
+        if (changed) el.title = 'เดิม: ' + (round(b) === 0 ? 'ว่าง' : round(b));
+        else el.removeAttribute('title');
+      }
+    });
+  }
+
+  function renderTablesAndRebalance(replan) {
     clearBanners();
-    rebalanceCard.hidden = true; rebalanceIncludeRound2 = false; rebalanceOverrides = {};
+    rebalanceCard.hidden = true;
+    if (replan) { rebalanceIncludeRound2 = false; rebalanceOverrides = {}; }
     table1Container.innerHTML = '';
     table2Container.innerHTML = '';
     lastTable1Rows = null;
@@ -2270,8 +2299,7 @@ if (typeof module !== 'undefined' && module.exports) {
     lastTable1 = table1;
     lastTable2 = table2;
     renderRebalance();
-    renderChangeLog();
-  });
+  }
 
   function flashButton(btn, text) {
     const original = btn.textContent;
@@ -2471,7 +2499,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // needing Run. Everything they touch is declared above; wrapped so a bad
   // saved state can never break startup.
   if (rebalanceState) {
-    try { renderRebalance(); renderChangeLog(); } catch (e) { /* ignore */ }
+    try { renderRebalance(); renderChangeLog(); markChangedCells(); } catch (e) { /* ignore */ }
   }
 })();
 </script>

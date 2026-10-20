@@ -258,7 +258,7 @@ test('targetOverrides redirect a person to another CAPEX WO, creating a new row 
   assert.ok(plan.lines[0].targetOptions.some(o => o.woKey === 'C3'));
 });
 
-// ---- applyMoves / buildChangeLog / summarizeRows --------------------------
+// ---- applyMoves / summarizeRows --------------------------
 function dayTotals(rows) {
   const t = {};
   rows.forEach(r => {
@@ -303,14 +303,6 @@ test('applyMoves writes an emptied source cell as a blank string', () => {
   const after = App.applyMoves(rows, moves);
   assert.strictEqual(after[0][5 + 4], '');
   assert.strictEqual(after[1][5 + 4], '1');
-});
-
-test('buildChangeLog sums per-hour moves into one line per person/WO pair/day', () => {
-  const rows = [row('Dev1', 'S1', 'C1', { 1: 8, 2: 8 }), row('Dev1', 'S1', 'O1', days(3, 11, 8))];
-  const plan = App.planRebalance(ctxFor(rows, [DEV('Dev1')]));
-  const log = App.buildChangeLog(plan.moves);
-  assert.deepStrictEqual(log.header, ['Name-Surname', 'Squad', 'From WO', 'To WO', 'Day', 'MH']);
-  assert.deepStrictEqual(log.rows, [['Dev1', 'S1', 'O1', 'C1', 11, 2]]);
 });
 
 test('summarizeRows runs parse → classify → Table 1/2 on grid rows', () => {
