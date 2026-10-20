@@ -768,6 +768,25 @@ def upload_non_xlsx_shows_error(page):
     expect(page.locator('#upload-status')).to_contain_text('ไฟล์นี้ดูไม่ใช่ไฟล์ Excel')
 
 
+def dropping_a_file_on_the_dropzone_uses_the_upload_handler(page):
+    show(page, 'timesheet')
+    page.locator('#xlsx-dropzone').evaluate('''el => {
+        const dt = new DataTransfer();
+        dt.items.add(new File(['just some text'], 'notes.xlsx', { type: 'text/plain' }));
+        el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }''')
+    expect(page.locator('#upload-status')).to_contain_text('ไฟล์นี้ดูไม่ใช่ไฟล์ Excel')
+
+
+def dragging_over_the_dropzone_highlights_it(page):
+    show(page, 'timesheet')
+    dz = page.locator('#xlsx-dropzone')
+    dz.evaluate("el => el.dispatchEvent(new DragEvent('dragover', { dataTransfer: new DataTransfer(), bubbles: true, cancelable: true }))")
+    expect(dz).to_have_class(re.compile('dragging'))
+    dz.evaluate("el => el.dispatchEvent(new DragEvent('dragleave', { bubbles: true }))")
+    expect(dz).not_to_have_class(re.compile('dragging'))
+
+
 # ---- Persistence + small controls ------------------------------------------
 
 def first_visit_loads_the_default_wo_mapping(page):
@@ -920,6 +939,8 @@ TESTS = [
     ('Copy Table 1 flashes "✓ Copied"', copy_table_flashes_copied),
     ('uploading krungsri.xlsx fills the timesheet grid', upload_sample_xlsx_fills_the_grid),
     ('uploading a file that is not really .xlsx shows an error', upload_non_xlsx_shows_error),
+    ('dropping a file on the dropzone goes through the upload handler', dropping_a_file_on_the_dropzone_uses_the_upload_handler),
+    ('dragging over the dropzone highlights it until the drag leaves', dragging_over_the_dropzone_highlights_it),
     ('the first visit loads the default WO Mapping, ready to Run', first_visit_loads_the_default_wo_mapping),
     ('the first visit loads the default People → Role list', first_visit_loads_the_default_people_roles),
     ('คืนค่าเริ่มต้น on People → Role replaces the grid with the defaults', people_roles_reset_restores_the_defaults),
