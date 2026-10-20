@@ -238,6 +238,54 @@ def empty_states_show_before_any_run(page):
     expect(page.locator('#rebalance-empty')).to_be_visible()
 
 
+def results_show_kpis_and_a_link_to_fix_over_80(page):
+    setup_over_80(page)  # S1: CAPEX 2.00 MD, OPEX 9.00 MD -> 81.82%
+    reveal(page, '#results-empty')
+    expect(page.locator('#results-empty')).to_be_hidden()
+    tiles = page.locator('#kpi-tiles .kpi')
+    expect(tiles).to_have_count(4)
+    expect(tiles.nth(0).locator('.kpi-value')).to_have_text('1')
+    expect(tiles.nth(1).locator('.kpi-value')).to_have_text('1')
+    expect(tiles.nth(1)).to_have_class(re.compile('kpi-alert'))
+    expect(tiles.nth(2).locator('.kpi-value')).to_have_text('11.00')
+    expect(tiles.nth(3).locator('.kpi-value')).to_have_text('81.82%')
+    expect(page.locator('#results-over-banner')).to_contain_text('มี 1 squad ที่ OPEX เกิน 80%: S1')
+    expect(page.locator('#rebalance-badge')).to_have_text('1')
+    click(page, '#results-over-banner a[href="#rebalance"]')
+    expect(view_el(page, 'rebalance')).to_be_visible()
+    expect(page.locator('#rebalance-empty')).to_be_hidden()
+
+
+def badge_and_banner_clear_once_nothing_is_over_80(page):
+    setup_over_80(page)
+    click(page, '[data-rb-action="apply"]')
+    expect(page.locator('#rebalance-badge')).to_be_hidden()
+    reveal(page, '#results-over-banner')
+    expect(page.locator('#results-over-banner')).to_be_hidden()
+    expect(page.locator('#kpi-tiles .kpi').nth(1)).not_to_have_class(re.compile('kpi-alert'))
+
+
+def no_squad_over_80_shows_the_rebalance_empty_state(page):
+    setup(page, MAPPING, [timesheet_row('Ann', 'S1', 'C1', {1: 8})])
+    show(page, 'rebalance')
+    expect(page.locator('#rebalance-empty')).to_be_visible()
+    expect(page.locator('#rebalance-card')).to_be_hidden()
+
+
+def timesheet_strip_counts_changed_cells_after_apply(page):
+    setup_over_80(page)
+    reveal(page, '#timesheet-rebalance-strip')
+    expect(page.locator('#timesheet-rebalance-strip')).to_be_hidden()
+    click(page, '[data-rb-action="apply"]')
+    show(page, 'timesheet')
+    strip = page.locator('#timesheet-rebalance-strip')
+    expect(strip).to_be_visible()
+    expect(strip).to_contain_text('ช่องที่เปลี่ยน 2 ช่อง')
+    click(page, '[data-rb-action="undo"]')
+    show(page, 'timesheet')
+    expect(strip).to_be_hidden()
+
+
 def run_without_mapping_shows_error(page):
     click(page, '#clear-mapping-btn')
     click(page, '#run-btn')
@@ -825,6 +873,10 @@ TESTS = [
     ('tabs follow the URL hash across a reload and the Back button', tabs_follow_the_hash_across_reload_and_back),
     ('a successful Run jumps to ผลลัพธ์; a Run error stays on Timesheet', run_success_jumps_to_results_but_errors_stay),
     ('ผลลัพธ์ and แก้เกิน 80% show an empty state before any Run', empty_states_show_before_any_run),
+    ('ผลลัพธ์ shows 4 KPI tiles, an over-80% banner and a ไปแก้ link to tab 3', results_show_kpis_and_a_link_to_fix_over_80),
+    ('the badge and banner clear once no squad is over 80%', badge_and_banner_clear_once_nothing_is_over_80),
+    ('แก้เกิน 80% shows its empty state when no squad is over', no_squad_over_80_shows_the_rebalance_empty_state),
+    ('after Apply the Timesheet tab says how many cells changed, gone after Undo', timesheet_strip_counts_changed_cells_after_apply),
     ('Run with an empty mapping shows an error banner', run_without_mapping_shows_error),
     ('Run with an empty timesheet shows an error banner', run_without_timesheet_shows_error),
     ('Run warns about unmapped and duplicate WOs but still builds the tables', run_warns_about_unmapped_and_duplicate_wos),
