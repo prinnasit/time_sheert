@@ -471,6 +471,56 @@ function squadSummary(afterTable2, beforeTable2) {
   };
 }
 
+// Key for one timesheet cell column: the same person, squad and WO, so
+// rows can be compared across versions no matter how they are ordered.
+function cellKey(nameKey, sq, woKey) {
+  return nameKey + '|' + sq + '|' + woKey;
+}
+
+// Per cellKey, the 31 daily MH (rows sharing a key are summed), the order
+// keys first appear in, and a label (as written in the first such row).
+function cellTotals(rowArrays) {
+  const totals = {}, order = [], labels = {};
+  extractEntries(rowArrays, { map: {} }).forEach(e => {
+    const k = cellKey(e.nameKey, e.sq, e.woKey);
+    if (!totals[k]) {
+      totals[k] = new Array(31).fill(0);
+      order.push(k);
+      labels[k] = { name: e.name, sq: e.sq, woNo: e.woNo };
+    }
+    e.days.forEach((v, i) => { totals[k][i] += v; });
+  });
+  return { totals: totals, order: order, labels: labels };
+}
+
+// Every day cell that differs between the original and current timesheet.
+// "Rebalance" when the current value is exactly what the applied moves
+// produce from the original, "แก้เอง" (typed by hand) otherwise.
+function diffTimesheets(original, current, appliedMoves) {
+  const round = v => Math.round(v * 1e6) / 1e6;
+  const blank = v => (round(v) === 0 ? '' : round(v));
+  const before = cellTotals(original), after = cellTotals(current);
+  const expected = {};
+  Object.keys(before.totals).forEach(k => { expected[k] = before.totals[k].slice(); });
+  const bump = (k, day, mh) => { (expected[k] = expected[k] || new Array(31).fill(0))[day - 1] += mh; };
+  (appliedMoves || []).forEach(m => {
+    bump(cellKey(m.nameKey, m.sq, m.fromWoKey), m.day, -m.mh);
+    bump(cellKey(m.nameKey, m.sq, m.toWoKey), m.day, m.mh);
+  });
+  const zero = new Array(31).fill(0);
+  const keys = after.order.concat(before.order.filter(k => after.order.indexOf(k) < 0));
+  const rows = [];
+  keys.forEach(k => {
+    const b = before.totals[k] || zero, a = after.totals[k] || zero, x = expected[k] || zero;
+    const label = after.labels[k] || before.labels[k];
+    for (let i = 0; i < 31; i++) {
+      if (round(b[i]) === round(a[i])) continue;
+      rows.push([label.name, label.sq, label.woNo, i + 1, blank(b[i]), blank(a[i]), round(a[i]) === round(x[i]) ? 'Rebalance' : 'แก้เอง']);
+    }
+  });
+  return { header: ['Name-Surname', 'Squad', 'WO No.', 'Day', 'เดิม', 'ใหม่', 'แก้โดย'], rows: rows };
+}
+
 function diffCell(before, after) {
   const b = formatMH(before), a = formatMH(after);
   return b === a ? { changed: false, text: a } : { changed: true, text: b + ' → ' + a };
@@ -773,7 +823,7 @@ if (typeof module !== 'undefined' && module.exports) {
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
-    takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, diffCell,
+    takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, cellKey, cellTotals, diffTimesheets, diffCell,
     extractEntries, planRebalance, applyMoves, buildChangeLog, summarizeRows
   };
 }

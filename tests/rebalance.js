@@ -380,6 +380,53 @@ test('a fixed squad re-plans to zero moves after applyMoves (idempotent)', () =>
   assert.strictEqual(again.squads[0].status, 'ok');
 });
 
+// ---- diffTimesheets ----------------------------------------------------------
+const dfOriginal = () => [row('Dev1', 'S1', 'C1', { 1: 8 }), row('Dev1', 'S1', 'O1', { 10: 8, 11: 8 })];
+const dfMoves = [{ nameKey: 'dev1', sq: 'S1', fromWoKey: 'O1', toWoKey: 'C1', day: 11, mh: 2 }];
+
+test('cellTotals sums rows that share name/squad/WO and keeps first-seen order', () => {
+  const t = App.cellTotals([row('Dev1', 'S1', 'O1', { 1: 4 }), row('Dev1', 'S1', 'C1', { 1: 1 }), row(' dev1 ', 'S1', 'o1', { 1: 2 })]);
+  assert.deepStrictEqual(t.order, [App.cellKey('dev1', 'S1', 'O1'), App.cellKey('dev1', 'S1', 'C1')]);
+  assert.strictEqual(t.totals[App.cellKey('dev1', 'S1', 'O1')][0], 6);
+  assert.deepStrictEqual(t.labels[App.cellKey('dev1', 'S1', 'O1')], { name: 'Dev1', sq: 'S1', woNo: 'O1' });
+});
+
+test('diffTimesheets: an unchanged timesheet has no rows', () => {
+  const d = App.diffTimesheets(dfOriginal(), dfOriginal(), []);
+  assert.deepStrictEqual(d.header, ['Name-Surname', 'Squad', 'WO No.', 'Day', 'เดิม', 'ใหม่', 'แก้โดย']);
+  assert.deepStrictEqual(d.rows, []);
+});
+
+test('diffTimesheets labels cells matching the applied moves as Rebalance and the rest as แก้เอง', () => {
+  const current = [row('Dev1', 'S1', 'C1', { 1: 8, 10: 1, 11: 2 }), row('Dev1', 'S1', 'O1', { 10: 7, 11: 6 })];
+  assert.deepStrictEqual(App.diffTimesheets(dfOriginal(), current, dfMoves).rows, [
+    ['Dev1', 'S1', 'C1', 10, '', 1, 'แก้เอง'],
+    ['Dev1', 'S1', 'C1', 11, '', 2, 'Rebalance'],
+    ['Dev1', 'S1', 'O1', 10, 8, 7, 'แก้เอง'],
+    ['Dev1', 'S1', 'O1', 11, 8, 6, 'Rebalance']
+  ]);
+});
+
+test('diffTimesheets: typing over a Rebalance cell makes it แก้เอง, typing it back removes it', () => {
+  const over = [row('Dev1', 'S1', 'C1', { 1: 8, 11: 2 }), row('Dev1', 'S1', 'O1', { 10: 8, 11: 5 })];
+  assert.deepStrictEqual(App.diffTimesheets(dfOriginal(), over, dfMoves).rows[1], ['Dev1', 'S1', 'O1', 11, 8, 5, 'แก้เอง']);
+  assert.deepStrictEqual(App.diffTimesheets(dfOriginal(), dfOriginal(), dfMoves).rows, []);
+});
+
+test('diffTimesheets: a row Rebalance created shows เดิม blank, and row order does not matter', () => {
+  const moves = [{ nameKey: 'dev1', sq: 'S1', fromWoKey: 'O1', toWoKey: 'C2', day: 11, mh: 2 }];
+  const current = [row('Dev1', 'S1', 'C2', { 11: 2 }), row('Dev1', 'S1', 'O1', { 10: 8, 11: 6 }), row('Dev1', 'S1', 'C1', { 1: 8 })];
+  assert.deepStrictEqual(App.diffTimesheets(dfOriginal(), current, moves).rows, [
+    ['Dev1', 'S1', 'C2', 11, '', 2, 'Rebalance'],
+    ['Dev1', 'S1', 'O1', 11, 8, 6, 'Rebalance']
+  ]);
+});
+
+test('diffTimesheets: a deleted row shows ใหม่ blank as แก้เอง', () => {
+  const current = [row('Dev1', 'S1', 'O1', { 10: 8, 11: 8 })];
+  assert.deepStrictEqual(App.diffTimesheets(dfOriginal(), current, []).rows, [['Dev1', 'S1', 'C1', 1, 8, '', 'แก้เอง']]);
+});
+
 process.on('exit', () => {
   if (failures > 0) { console.log(failures + ' failing test(s)'); process.exitCode = 1; }
   else { console.log('All rebalance tests passed'); }
