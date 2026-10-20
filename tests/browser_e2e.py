@@ -558,6 +558,25 @@ def downloaded_new_timesheet_uploads_back_with_the_edits(page):
 
 # ---- Remaining + new month -------------------------------------------------
 
+def editing_back_over_80_after_a_clean_apply_rebuilds_the_draft(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    expect(opex_cell(page, 'S1')).to_have_text('79.55%')
+    grid_cell(page, 'timesheet-grid', 0, day_col(11)).fill('')   # put the original values back by hand
+    grid_cell(page, 'timesheet-grid', 1, day_col(11)).fill('8')
+    expect(opex_cell(page, 'S1')).to_have_text('81.82%')
+    expect(draft_rows(page)).to_have_count(1)
+    expect(page.locator('[data-rb-action="apply"]')).to_be_enabled()
+
+
+def new_month_clears_the_yellow_changed_cells(page):
+    setup_over_80(page)
+    page.click('[data-rb-action="apply"]')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).to_have_class(re.compile('cell-changed'))
+    page.click('#new-month-btn')
+    expect(grid_cell(page, 'timesheet-grid', 1, day_col(11))).not_to_have_class(re.compile('cell-changed'))
+
+
 def remaining_this_month_is_last_month_minus_actual(page):
     setup_over_80(page)
     page.locator('#table1-container .remaining-input[data-wo-key="C1"]').fill('10')
@@ -755,6 +774,8 @@ TESTS = [
     ('Undo after manual edits restores the original timesheet', undo_after_manual_edits_restores_the_original),
     ('before Apply, editing the timesheet still waits for Run', before_apply_editing_waits_for_run),
     ('the downloaded new timesheet .xlsx uploads back with the edits', downloaded_new_timesheet_uploads_back_with_the_edits),
+    ('editing back over 80% after a clean Apply rebuilds the draft', editing_back_over_80_after_a_clean_apply_rebuilds_the_draft),
+    ('ขึ้นเดือนใหม่ clears the yellow changed cells', new_month_clears_the_yellow_changed_cells),
     ('Remaining (เดือนนี้) = last month − this month and syncs to the Mapping grid', remaining_this_month_is_last_month_minus_actual),
     ('ขึ้นเดือนใหม่ rolls this month\'s Remaining into last month', new_month_rolls_this_month_into_last_month),
     ('ขึ้นเดือนใหม่ before Run shows an error banner', new_month_before_run_shows_error),

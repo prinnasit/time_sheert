@@ -1130,6 +1130,7 @@ if (typeof module !== 'undefined' && module.exports) {
   #rebalance-container tr.rb-row-error td { background: var(--error-bg); }
   #rebalance-container .rb-msg-error { color: var(--error-text); font-weight: 600; }
   #rebalance-container .rb-msg-warn { color: var(--warn-text); }
+  #rebalance-container td.rb-row-msg { white-space: normal; min-width: 16rem; }
 </style>
 
 <header class="page-head">
@@ -1288,6 +1289,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // Editable rebalance suggestion (spec: docs/superpowers/specs/2026-10-20-editable-rebalance-design.md).
   // null = "build one from the current plan on the next render".
   let rebalanceDraft = null;
+  let autoRefreshTimer = null;
   let nextDraftId = 1;
   const rebalanceCard = document.getElementById('rebalance-card');
   const rebalanceContainer = document.getElementById('rebalance-container');
@@ -1984,6 +1986,8 @@ if (typeof module !== 'undefined' && module.exports) {
     rebalanceState = null;
     rebalanceIncludeRound2 = false;
     rebalanceDraft = null;
+    clearTimeout(autoRefreshTimer);
+    markChangedCells();
     try {
       localStorage.removeItem(REBALANCE_STORAGE_KEY);
       localStorage.removeItem(TIMESHEET_STORAGE_KEY);
@@ -2106,8 +2110,8 @@ if (typeof module !== 'undefined' && module.exports) {
   function renderRebalance() {
     const plan = currentPlan();
     const flagged = plan.squads.filter(s => s.status !== 'ok');
-    if (rebalanceDraft === null) rebalanceDraft = withDraftIds(movesToDraft(plan.moves));
-    const showDraft = flagged.length > 0 || rebalanceDraft.length > 0;
+    if (rebalanceDraft === null && flagged.length > 0) rebalanceDraft = withDraftIds(movesToDraft(plan.moves));
+    const showDraft = flagged.length > 0 || (rebalanceDraft || []).length > 0;
     if (!showDraft && !rebalanceState) {
       rebalanceCard.hidden = true;
       rebalanceContainer.innerHTML = '';
@@ -2134,9 +2138,9 @@ if (typeof module !== 'undefined' && module.exports) {
 
     if (showDraft) {
       const ctx = draftCtx();
-      const res = resolveDraft(ctx.rowArrays, rebalanceDraft, ctx);
+      const res = resolveDraft(ctx.rowArrays, rebalanceDraft || [], ctx);
       const needsContinue = flagged.some(s => s.status === 'needs-continue');
-      html += renderDraftTable(rebalanceDraft, ctx, res) +
+      html += renderDraftTable(rebalanceDraft || [], ctx, res) +
         '<div class="row"><button type="button" class="btn" data-rb-action="draft-add">+ เพิ่มการย้าย</button>' +
         '<button type="button" class="btn" data-rb-action="recalc">↻ คำนวณคำแนะนำใหม่</button>' +
         (needsContinue ? '<button type="button" class="btn" data-rb-action="continue">ทำต่อ (รอบที่ 2)</button>' : '') + '</div>' +
@@ -2320,7 +2324,6 @@ if (typeof module !== 'undefined' && module.exports) {
   // number doesn't recompute on every key. Only cell classes/titles change
   // in the grid, never its inputs, so the cursor stays put.
   const AUTO_REFRESH_MS = 300;
-  let autoRefreshTimer = null;
   function scheduleAutoRefresh() {
     clearTimeout(autoRefreshTimer);
     autoRefreshTimer = setTimeout(() => refresh({ replan: false }), AUTO_REFRESH_MS);
