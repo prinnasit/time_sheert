@@ -1,6 +1,9 @@
 // tests/run-tests.js
 const assert = require('assert');
 const { loadApp } = require('./load-app');
+const fs = require('fs');
+const path = require('path');
+const { settingsSample } = require('./fixtures');
 
 let failures = 0;
 function test(name, fn) {
@@ -196,27 +199,62 @@ test('table1ToRows and table2ToRows produce full-precision numeric rows plus tot
   assert.strictEqual(t2rows.rows[0][1], 1 / 3);
 });
 
-test('DEFAULT_WO_MAPPING parses cleanly with no skipped lines or duplicate WOs', () => {
-  assert.strictEqual(App.DEFAULT_WO_MAPPING.length, 14);
-  const text = App.DEFAULT_WO_MAPPING.map(r => r.join('\t')).join('\n');
-  const parsed = App.parseMappingText(text);
-  assert.deepStrictEqual(parsed.skippedLines, []);
-  assert.deepStrictEqual(parsed.duplicateWOs, []);
-  assert.strictEqual(Object.keys(parsed.map).length, 14);
-  assert.deepStrictEqual(parsed.map['WO-01'], { wo: 'WO-01', category: 'CAPEX', name: 'ONE Corporate MVP1' });
-  assert.strictEqual(parsed.map['WO-07'].category, 'OPEX');
-  assert.strictEqual(parsed.map['Z01'].category, 'NON_CHARGE');
+test('the page ships no built-in WO list, people or ceilings (they come from a private settings file)', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.ok(!/DEFAULT_(WO_MAPPING|PEOPLE_ROLES|ROLE_CEILINGS)/.test(html), 'default data constants are back in index.html');
 });
 
-test('DEFAULT_PEOPLE_ROLES: unique names, and every role but Head of Innovation has a Role Ceiling', () => {
-  assert.strictEqual(App.DEFAULT_PEOPLE_ROLES.length, 37);
-  const roleMap = App.parsePeopleRoles(App.DEFAULT_PEOPLE_ROLES);
-  assert.strictEqual(Object.keys(roleMap).length, 37, 'a name is listed twice');
-  const ceilings = App.parseRoleCeilings(App.DEFAULT_ROLE_CEILINGS).map;
-  const noCeiling = App.DEFAULT_PEOPLE_ROLES.filter(r => !ceilings[App.normalizeKey(r[1])]).map(r => r[1]);
-  assert.deepStrictEqual(noCeiling, ['Head of Innovation']);
-  assert.strictEqual(roleMap['Person 16'], 'Developer');
-  assert.ok(!roleMap['Person X1'] && !roleMap['Person X2'], 'struck-through people must not be listed');
+test('parseSettingsJson turns the three sections into grid rows', () => {
+  const r = App.parseSettingsJson(JSON.stringify(settingsSample));
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.woMapping, [['WO-C1', 'CAPEX', 'Sample capex project'], ['WO-O1', 'OPEX', 'Sample support'], ['WO-Z1', 'Non Charge', 'Leave']]);
+  assert.deepStrictEqual(r.roleCeilings[3], ['Quality Assurance Lead', '8', '9.6', '2.4']);
+  assert.deepStrictEqual(r.people, [['Person One', 'Developer'], ['Person Two', 'Automated Tester']]);
+  assert.deepStrictEqual(r.skipped, { woMapping: 0, roleCeilings: 0, people: 0 });
+});
+
+test('parseSettingsJson: a section that is absent stays null so that grid is left alone', () => {
+  const r = App.parseSettingsJson('{"people":[{"name":"A","role":"Developer"}]}');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.woMapping, null);
+  assert.strictEqual(r.roleCeilings, null);
+  assert.deepStrictEqual(r.people, [['A', 'Developer']]);
+});
+
+test('parseSettingsJson skips unusable entries and counts them (bad category, missing numbers, no name)', () => {
+  const r = App.parseSettingsJson(JSON.stringify({
+    woMapping: [{ wo: 'A', category: 'capex' }, { wo: 'B', category: 'nonsense' }, { category: 'OPEX' }, 'x'],
+    roleCeilings: [{ role: 'Dev', z: 1, capex: 2, opex: 3 }, { role: 'Bad', z: 'a', capex: 1, opex: 1 }, { role: 'Neg', z: 1, capex: -1, opex: 1 }],
+    people: [{ name: 'A' }, { role: 'Developer' }]
+  }));
+  assert.deepStrictEqual(r.woMapping, [['A', 'CAPEX', '']]);
+  assert.strictEqual(r.skipped.woMapping, 3);
+  assert.deepStrictEqual(r.roleCeilings, [['Dev', '1', '2', '3']]);
+  assert.strictEqual(r.skipped.roleCeilings, 2);
+  assert.deepStrictEqual(r.people, [['A', '']]);
+  assert.strictEqual(r.skipped.people, 1);
+});
+
+test('parseSettingsJson rejects non-JSON, non-objects and files with none of the sections', () => {
+  assert.strictEqual(App.parseSettingsJson('not json').ok, false);
+  assert.strictEqual(App.parseSettingsJson('[1,2]').ok, false);
+  assert.strictEqual(App.parseSettingsJson('{"foo":1}').ok, false);
+  assert.strictEqual(App.parseSettingsJson('').ok, false);
+  assert.strictEqual(App.parseSettingsJson('﻿{"people":[]}').ok, true); // BOM from Windows editors
+});
+
+test('buildSettingsJson round-trips through parseSettingsJson and drops blank rows', () => {
+  const tables = {
+    woMapping: [['WO-C1', 'CAPEX', 'Sample capex project', '12'], ['', '', '', '']],
+    roleCeilings: [['Developer', '2', '16', '2'], []],
+    people: [['Person One', 'Developer'], ['', '']]
+  };
+  const text = App.buildSettingsJson(tables);
+  const r = App.parseSettingsJson(text);
+  assert.deepStrictEqual(r.woMapping, [['WO-C1', 'CAPEX', 'Sample capex project']]);
+  assert.deepStrictEqual(r.roleCeilings, [['Developer', '2', '16', '2']]);
+  assert.deepStrictEqual(r.people, [['Person One', 'Developer']]);
+  assert.strictEqual(JSON.parse(text).version, 1);
 });
 
 test('summaryKpis counts squads, flags those over the threshold, totals Man-Day and overall OPEX', () => {

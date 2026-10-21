@@ -1,6 +1,7 @@
 // tests/rebalance.js — OPEX rebalance: pure helpers + planner + apply.
 const assert = require('assert');
 const { loadApp } = require('./load-app');
+const { settingsRoleCeilingRows } = require('./fixtures');
 
 let failures = 0;
 function test(name, fn) {
@@ -10,15 +11,11 @@ function test(name, fn) {
 
 const App = loadApp();
 
-test('DEFAULT_ROLE_CEILINGS: every role sums to 20 MD and parses cleanly', () => {
-  assert.strictEqual(App.DEFAULT_ROLE_CEILINGS.length, 16);
-  const parsed = App.parseRoleCeilings(App.DEFAULT_ROLE_CEILINGS);
+test('parseRoleCeilings reads the sample ceilings (strings -> numbers)', () => {
+  const parsed = App.parseRoleCeilings(settingsRoleCeilingRows);
   assert.deepStrictEqual(parsed.skipped, []);
-  Object.keys(parsed.map).forEach(k => {
-    const c = parsed.map[k];
-    assert.ok(Math.abs(c.z + c.capex + c.opex - 20) < 1e-9, c.role + ' does not sum to 20');
-  });
   assert.deepStrictEqual(parsed.map['developer'], { role: 'Developer', z: 2, capex: 16, opex: 2 });
+  assert.deepStrictEqual(parsed.map['quality assurance lead'], { role: 'Quality Assurance Lead', z: 8, capex: 9.6, opex: 2.4 });
 });
 
 test('parseRoleCeilings skips rows with a blank role, non-numeric or negative values', () => {
@@ -124,7 +121,7 @@ function days(from, to, v, extra) {
   return Object.assign(o, extra || {});
 }
 const mapping = App.parseMappingText(['C1\tCAPEX\tCap 1', 'C2\tCAPEX\tCap 2', 'C3\tCAPEX\tCap 3', 'O1\tOPEX\tOps 1', 'Z01\tNon Charge\tLeave'].join('\n'));
-const ceilings = App.parseRoleCeilings(App.DEFAULT_ROLE_CEILINGS).map;
+const ceilings = App.parseRoleCeilings(settingsRoleCeilingRows).map;
 function ctxFor(rows, people, extra) {
   return Object.assign({ rowArrays: rows, mapping, roleMap: App.parsePeopleRoles(people), ceilings, workingDays: 20, remainingLast: {} }, extra || {});
 }

@@ -296,89 +296,85 @@ function table2ToRows(table2, beforeTable2) {
 const OPEX_THRESHOLD = 0.8;
 const BASE_MONTH_MD = 20;
 
-// [Role, Z01-Z03, CAPEX, OPEX] — Man-Day ceiling per person per month.
-const DEFAULT_ROLE_CEILINGS = [
-  ['Automated Tester', '3', '14', '3'],
-  ['Cloud Engineer', '1', '11', '8'],
-  ['Cloud Engineer Lead', '2', '10', '8'],
-  ['Developer', '2', '16', '2'],
-  ['DevOps Engineer', '1', '11', '8'],
-  ['Engineering Manager', '6', '10', '4'],
-  ['Engineering Team Leader', '5', '11', '4'],
-  ['Incident Management Engineer', '1', '0', '19'],
-  ['Product Owner', '5', '5', '10'],
-  ['Project Manager', '5', '10', '5'],
-  ['Quality Assurance Lead', '8', '9.6', '2.4'],
-  ['Release Manager', '1', '7', '12'],
-  ['Software Quality Assurance', '2', '13', '5'],
-  ['Solution Architect', '4', '4', '12'],
-  ['System Analyst', '4', '14', '2'],
-  ['System Analyst Manager', '4', '8', '8']
-];
+// ---------------------------------------------------------------------
+// Settings file (.json): WO Mapping, Role Ceilings and People → Role
+// ---------------------------------------------------------------------
+// Real WO numbers, role ceilings and employee names are NOT part of this
+// page (it is published on GitHub Pages). They live in a JSON file kept on
+// the user's machine and are imported into the grids from the ⚙ ตั้งค่า tab.
+// Format (every section optional):
+//   { "version": 1,
+//     "woMapping":    [{ "wo": "W-001", "category": "CAPEX", "name": "..." }],
+//     "roleCeilings": [{ "role": "Developer", "z": 2, "capex": 16, "opex": 2 }],
+//     "people":       [{ "name": "Somchai Jaidee", "role": "Developer" }] }
 
-// [WO No., Category, WO Name] — loaded into the WO Mapping grid whenever no
-// non-empty mapping is saved, and by its "คืนค่าเริ่มต้น" button.
-const DEFAULT_WO_MAPPING = [
-  ['WO-01', 'CAPEX', 'ONE Corporate MVP1'],
-  ['WO-02', 'CAPEX', 'WO title 01'],
-  ['WO-03', 'CAPEX', 'WO title 02'],
-  ['WO-04', 'CAPEX', 'WO title 03'],
-  ['WO-05', 'CAPEX', 'WO title 04'],
-  ['WO-06', 'CAPEX', 'WO title 05'],
-  ['WO-07', 'OPEX', 'WO title 06'],
-  ['WO-08', 'OPEX', 'WO title 07'],
-  ['WO-09', 'OPEX', 'WO title 08'],
-  ['WO-10', 'OPEX', 'WO title 09'],
-  ['WO-11', 'OPEX', 'WO title 07'],
-  ['WO-12', 'OPEX', 'WO title 11'],
-  ['Z01', 'Non Charge', 'Z01:Leave -> Leave / Day-Off'],
-  ['Z02', 'Non Charge', 'Z02:Train -> Training / Meeting']
-];
+const SETTINGS_VERSION = 1;
+const SETTINGS_SECTIONS = ['woMapping', 'roleCeilings', 'people'];
 
-// [Name-Surname, Role] — loaded into People → Role whenever no non-empty
-// list is saved, and by its "คืนค่าเริ่มต้น" button. Roles use the full names
-// from DEFAULT_ROLE_CEILINGS (the source sheet's DEV / QA / SA / SolAr / ETL /
-// EM / PM / QA Lead abbreviations are expanded); Head of Innovation has no
-// ceiling row on purpose, so the rebalance never edits that timesheet.
-const DEFAULT_PEOPLE_ROLES = [
-  ['Person 01', 'Head of Innovation'],
-  ['Person 02', 'Solution Architect'],
-  ['Person 03', 'Quality Assurance Lead'],
-  ['Person 04', 'Engineering Manager'],
-  ['Person 05', 'Engineering Team Leader'],
-  ['Person 06', 'Engineering Team Leader'],
-  ['Person 07', 'Engineering Team Leader'],
-  ['Person 08', 'Project Manager'],
-  ['Person 09', 'System Analyst'],
-  ['Person 10', 'Developer'],
-  ['Person 11', 'Developer'],
-  ['Person 12', 'Developer'],
-  ['Person 13', 'Developer'],
-  ['Person 14', 'Developer'],
-  ['Person 15', 'Developer'],
-  ['Person 16', 'Developer'],
-  ['Person 17', 'Developer'],
-  ['Person 18', 'Developer'],
-  ['Person 19', 'Software Quality Assurance'],
-  ['Person 20', 'Software Quality Assurance'],
-  ['Person 21', 'System Analyst'],
-  ['Person 22', 'Developer'],
-  ['Person 23', 'Developer'],
-  ['Person 24', 'Developer'],
-  ['Person 25', 'Developer'],
-  ['Person 26', 'Developer'],
-  ['Person 27', 'Developer'],
-  ['Person 28', 'Software Quality Assurance'],
-  ['Person 29', 'Software Quality Assurance'],
-  ['Person 30', 'System Analyst'],
-  ['Person 31', 'Developer'],
-  ['Person 32', 'Developer'],
-  ['Person 33', 'Developer'],
-  ['Person 34', 'Software Quality Assurance'],
-  ['Person 35', 'Developer'],
-  ['Person 36', 'Developer'],
-  ['Person 37', 'System Analyst']
-];
+// Turns the file's text into grid rows (arrays of strings, the same shape
+// the grids use). A section that is missing comes back as null, so the
+// caller leaves that grid alone; entries that are not usable are skipped
+// and counted rather than failing the whole import.
+function parseSettingsJson(text) {
+  let data;
+  try { data = JSON.parse(String(text == null ? '' : text).replace(/^﻿/, '')); }
+  catch (e) { return { ok: false, error: 'ไฟล์นี้ไม่ใช่ JSON ที่ถูกต้อง (' + e.message + ')' }; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, error: 'รูปแบบไฟล์ไม่ถูกต้อง: ต้องเป็น object ที่มี woMapping / roleCeilings / people' };
+  }
+  if (!SETTINGS_SECTIONS.some(k => k in data)) {
+    return { ok: false, error: 'ไม่พบข้อมูล woMapping, roleCeilings หรือ people ในไฟล์' };
+  }
+  const str = v => (v == null ? '' : String(v).trim());
+  const num = v => {
+    if (v == null || String(v).trim() === '') return null;
+    const p = parseNum(v);
+    return p.ok && p.value >= 0 ? p.value : null;
+  };
+  const result = { ok: true, woMapping: null, roleCeilings: null, people: null, skipped: { woMapping: 0, roleCeilings: 0, people: 0 } };
+
+  function eachEntry(key, toRow) {
+    if (!(key in data)) return;
+    if (!Array.isArray(data[key])) { result.skipped[key] = 1; result[key] = []; return; }
+    result[key] = [];
+    data[key].forEach(item => {
+      const row = item && typeof item === 'object' && !Array.isArray(item) ? toRow(item) : null;
+      if (row) result[key].push(row); else result.skipped[key]++;
+    });
+  }
+
+  eachEntry('woMapping', o => {
+    const wo = str(o.wo), cat = normalizeCategory(o.category);
+    if (!wo || !cat) return null;
+    return [wo, cat === 'NON_CHARGE' ? 'Non Charge' : cat, str(o.name)];
+  });
+  eachEntry('roleCeilings', o => {
+    const role = str(o.role), z = num(o.z), c = num(o.capex), op = num(o.opex);
+    if (!role || z == null || c == null || op == null) return null;
+    return [role, String(z), String(c), String(op)];
+  });
+  eachEntry('people', o => {
+    const name = str(o.name), role = str(o.role);
+    if (!name) return null;
+    return [name, role];
+  });
+  return result;
+}
+
+// The reverse: grid rows → the file's text (pretty-printed, blank rows
+// dropped), so "ดาวน์โหลดไฟล์ตั้งค่า" writes something parseSettingsJson reads.
+function buildSettingsJson(tables) {
+  const str = v => (v == null ? '' : String(v).trim());
+  const num = v => { const p = parseNum(v); return p.ok ? p.value : 0; };
+  const filled = rows => (rows || []).filter(r => r && r.some(c => str(c) !== ''));
+  const data = {
+    version: SETTINGS_VERSION,
+    woMapping: filled(tables.woMapping).map(r => ({ wo: str(r[0]), category: str(r[1]), name: str(r[2]) })),
+    roleCeilings: filled(tables.roleCeilings).map(r => ({ role: str(r[0]), z: num(r[1]), capex: num(r[2]), opex: num(r[3]) })),
+    people: filled(tables.people).map(r => ({ name: str(r[0]), role: str(r[1]) }))
+  };
+  return JSON.stringify(data, null, 2) + '\n';
+}
 
 const TIMESHEET_HEADER = ['Name-Surname', 'SQ', 'WO No.', 'WO Name', 'FTE/OS']
   .concat(Array.from({ length: 31 }, (_, i) => 'Day' + (i + 1)));
@@ -920,7 +916,7 @@ if (typeof module !== 'undefined' && module.exports) {
     parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, summaryKpis, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
-    OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
+    OPEX_THRESHOLD, BASE_MONTH_MD, SETTINGS_VERSION, parseSettingsJson, buildSettingsJson, TIMESHEET_HEADER, normalizeKey,
     parseRoleCeilings, parsePeopleRoles, countWorkingDays, monthFromSheetValue,
     takeTimesheetRows, timesheetToAoa, timesheetToTSV, squadSummary, cellKey, cellTotals, diffTimesheets,
     movesToDraft, draftRowDefaults, resolveDraft, diffCell,
@@ -1273,6 +1269,17 @@ if (typeof module !== 'undefined' && module.exports) {
 
 <section class="view" data-view="settings" hidden>
   <section class="card">
+    <div class="card-head"><h2>ไฟล์ตั้งค่า</h2></div>
+    <p class="card-desc">WO Mapping, Role Ceilings และ People &rarr; Role ไม่ได้ฝังอยู่ในหน้าเว็บนี้ เก็บไว้เป็นไฟล์ .json ในเครื่องของคุณ แล้วนำเข้าที่นี่ ระบบจำไว้ในเบราว์เซอร์นี้ ส่วนที่ไม่มีในไฟล์จะไม่ถูกแตะ</p>
+    <div class="row">
+      <label class="btn btn-primary">นำเข้าไฟล์ตั้งค่า (.json)<input type="file" id="settings-upload" accept=".json,application/json" hidden></label>
+      <button id="settings-download-btn" class="btn" type="button">ดาวน์โหลดไฟล์ตั้งค่า (.json)</button>
+      <span id="settings-status" class="status-text"></span>
+    </div>
+    <div id="settings-empty-hint" class="banner warn" hidden>ยังไม่มีข้อมูลตั้งค่า กด "นำเข้าไฟล์ตั้งค่า" เพื่อเริ่มใช้งาน หรือกรอกเองในตารางด้านล่าง</div>
+  </section>
+
+  <section class="card">
     <div class="card-head"><h2>WO Mapping</h2></div>
     <p class="card-desc">พิมพ์หรือวาง (paste) ตาราง WO No. / Category / WO Name ทีละช่อง — วางข้อมูลก้อนใหญ่จาก Excel ลงในช่องแรกได้เลย มันจะกระจายลงทุกช่องให้อัตโนมัติเหมือนใน Excel</p>
     <div id="mapping-grid"></div>
@@ -1280,7 +1287,6 @@ if (typeof module !== 'undefined' && module.exports) {
     <textarea id="mapping-input" hidden></textarea>
     <div class="row">
       <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
-      <button id="mapping-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
       <span id="mapping-status" class="status-text"></span>
     </div>
   </section>
@@ -1291,7 +1297,7 @@ if (typeof module !== 'undefined' && module.exports) {
     <div id="role-ceilings-grid"></div>
     <button id="role-ceilings-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
     <div class="row">
-      <button id="role-ceilings-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+      <button id="role-ceilings-clear-btn" class="btn" type="button">Clear</button>
     </div>
   </section>
 
@@ -1301,7 +1307,7 @@ if (typeof module !== 'undefined' && module.exports) {
     <div id="people-roles-grid"></div>
     <button id="people-roles-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
     <div class="row">
-      <button id="people-roles-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+      <button id="people-roles-clear-btn" class="btn" type="button">Clear</button>
     </div>
     <datalist id="role-options"></datalist>
   </section>
@@ -1316,7 +1322,6 @@ if (typeof module !== 'undefined' && module.exports) {
 
   const mappingInput = document.getElementById('mapping-input');
   const clearMappingBtn = document.getElementById('clear-mapping-btn');
-  const mappingResetBtn = document.getElementById('mapping-reset-btn');
   const mappingStatus = document.getElementById('mapping-status');
   const timesheetInput = document.getElementById('timesheet-input');
   const xlsxUpload = document.getElementById('xlsx-upload');
@@ -1337,13 +1342,17 @@ if (typeof module !== 'undefined' && module.exports) {
   const newMonthStatus = document.getElementById('new-month-status');
   const roleCeilingsMount = document.getElementById('role-ceilings-grid');
   const roleCeilingsAddRowBtn = document.getElementById('role-ceilings-add-row-btn');
-  const roleCeilingsResetBtn = document.getElementById('role-ceilings-reset-btn');
+  const roleCeilingsClearBtn = document.getElementById('role-ceilings-clear-btn');
   const workingDaysInput = document.getElementById('working-days-input');
   const workingDaysHint = document.getElementById('working-days-hint');
   const peopleRolesMount = document.getElementById('people-roles-grid');
   const peopleRolesAddRowBtn = document.getElementById('people-roles-add-row-btn');
-  const peopleRolesResetBtn = document.getElementById('people-roles-reset-btn');
+  const peopleRolesClearBtn = document.getElementById('people-roles-clear-btn');
   const roleOptions = document.getElementById('role-options');
+  const settingsUpload = document.getElementById('settings-upload');
+  const settingsDownloadBtn = document.getElementById('settings-download-btn');
+  const settingsStatus = document.getElementById('settings-status');
+  const settingsEmptyHint = document.getElementById('settings-empty-hint');
 
   const MAPPING_STORAGE_KEY = 'woTimesheetSummary.mappingText';
   const REMAINING_STORAGE_KEY = 'woTimesheetSummary.remaining';
@@ -1752,21 +1761,25 @@ if (typeof module !== 'undefined' && module.exports) {
     saveRows(ROLE_CEILINGS_STORAGE_KEY, roleCeilingsGrid.getRows());
     refreshRoleOptions();
   });
-  roleCeilingsGrid.setRows(loadSavedRows(ROLE_CEILINGS_STORAGE_KEY) || DEFAULT_ROLE_CEILINGS.map(r => r.slice()));
+  // No built-in data: the grids start from what this browser saved, else
+  // empty until a settings file is imported (see "ไฟล์ตั้งค่า" below).
+  roleCeilingsGrid.setRows(loadSavedRows(ROLE_CEILINGS_STORAGE_KEY) || []);
   refreshRoleOptions();
-  roleCeilingsResetBtn.addEventListener('click', () => {
-    roleCeilingsGrid.setRows(DEFAULT_ROLE_CEILINGS.map(r => r.slice()));
-    saveRows(ROLE_CEILINGS_STORAGE_KEY, roleCeilingsGrid.getRows());
+  roleCeilingsClearBtn.addEventListener('click', () => {
+    roleCeilingsGrid.setRows([]);
+    saveRows(ROLE_CEILINGS_STORAGE_KEY, []);
     refreshRoleOptions();
+    updateSettingsEmptyHint();
   });
 
   const peopleRolesGrid = createGridEditor(peopleRolesMount, PEOPLE_ROLE_COLUMNS, peopleRolesAddRowBtn, 3, () => {
     saveRows(PEOPLE_ROLES_STORAGE_KEY, peopleRolesGrid.getRows());
   });
-  peopleRolesGrid.setRows(loadSavedRows(PEOPLE_ROLES_STORAGE_KEY) || DEFAULT_PEOPLE_ROLES.map(r => r.slice()));
-  peopleRolesResetBtn.addEventListener('click', () => {
-    peopleRolesGrid.setRows(DEFAULT_PEOPLE_ROLES.map(r => r.slice()));
-    saveRows(PEOPLE_ROLES_STORAGE_KEY, peopleRolesGrid.getRows());
+  peopleRolesGrid.setRows(loadSavedRows(PEOPLE_ROLES_STORAGE_KEY) || []);
+  peopleRolesClearBtn.addEventListener('click', () => {
+    peopleRolesGrid.setRows([]);
+    saveRows(PEOPLE_ROLES_STORAGE_KEY, []);
+    updateSettingsEmptyHint();
   });
 
   // Working days this month: auto-counted (Mon-Fri) from the month of an
@@ -1804,17 +1817,11 @@ if (typeof module !== 'undefined' && module.exports) {
     }
   } catch (e) { /* ignore */ }
 
-  // Start from DEFAULT_WO_MAPPING unless a mapping with at least one data
-  // row was saved — an empty table (never saved, Cleared, or every row
-  // deleted) is never useful, so it falls back to the defaults.
-  const defaultMappingText = [MAPPING_COLUMNS.map(c => c.label).join('\t')]
-    .concat(DEFAULT_WO_MAPPING.map(r => r.join('\t'))).join('\n');
-  function hasMappingRows(text) {
-    return String(text || '').split(/\r\n|\r|\n/).slice(1).some(line => line.replace(/\t/g, '').trim() !== '');
-  }
+  // The mapping starts from what this browser saved, else empty until a
+  // settings file is imported.
   let savedMapping = null;
   try { savedMapping = localStorage.getItem(MAPPING_STORAGE_KEY); } catch (e) { /* localStorage unavailable, ignore */ }
-  mappingInput.value = hasMappingRows(savedMapping) ? savedMapping : defaultMappingText;
+  mappingInput.value = savedMapping || '';
   populateGridFromTSV(mappingGrid, mappingInput.value);
   if (rebalanceState) {
     try {
@@ -1835,16 +1842,72 @@ if (typeof module !== 'undefined' && module.exports) {
     syncMappingRemainingDisplay();
     mappingStatus.textContent = 'Cleared';
     setTimeout(() => { mappingStatus.textContent = ''; }, 1500);
+    updateSettingsEmptyHint();
   });
 
-  mappingResetBtn.addEventListener('click', () => {
-    mappingInput.value = defaultMappingText;
-    populateGridFromTSV(mappingGrid, defaultMappingText);
-    try { localStorage.setItem(MAPPING_STORAGE_KEY, defaultMappingText); } catch (e) { /* ignore */ }
-    syncMappingRemainingDisplay();
-    mappingStatus.textContent = 'คืนค่าเริ่มต้นแล้ว';
-    setTimeout(() => { mappingStatus.textContent = ''; }, 1500);
+  // -- Settings file: import / export the three settings grids as .json.
+
+  function hasRows(grid) { return grid.getRows().length > 0; }
+  function updateSettingsEmptyHint() {
+    settingsEmptyHint.hidden = hasRows(mappingGrid) || hasRows(roleCeilingsGrid) || hasRows(peopleRolesGrid);
+  }
+
+  function applySettings(parsed) {
+    const done = [];
+    if (parsed.woMapping) {
+      const text = [MAPPING_COLUMNS.map(c => c.label).join('\t')].concat(parsed.woMapping.map(r => r.join('\t'))).join('\n');
+      mappingInput.value = text;
+      populateGridFromTSV(mappingGrid, text);
+      try { localStorage.setItem(MAPPING_STORAGE_KEY, text); } catch (e) { /* ignore */ }
+      syncMappingRemainingDisplay();
+      done.push('WO ' + parsed.woMapping.length + ' รายการ');
+    }
+    if (parsed.roleCeilings) {
+      roleCeilingsGrid.setRows(parsed.roleCeilings);
+      saveRows(ROLE_CEILINGS_STORAGE_KEY, roleCeilingsGrid.getRows());
+      refreshRoleOptions();
+      done.push('ตำแหน่ง ' + parsed.roleCeilings.length + ' ตำแหน่ง');
+    }
+    if (parsed.people) {
+      peopleRolesGrid.setRows(parsed.people);
+      saveRows(PEOPLE_ROLES_STORAGE_KEY, peopleRolesGrid.getRows());
+      done.push('พนักงาน ' + parsed.people.length + ' คน');
+    }
+    const skipped = parsed.skipped.woMapping + parsed.skipped.roleCeilings + parsed.skipped.people;
+    updateSettingsEmptyHint();
+    return 'นำเข้าแล้ว: ' + done.join(' · ') + (skipped ? ' (ข้ามรายการที่ข้อมูลไม่ครบ ' + skipped + ' รายการ)' : '');
+  }
+
+  settingsUpload.addEventListener('change', () => {
+    const file = settingsUpload.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseSettingsJson(reader.result);
+      settingsStatus.textContent = parsed.ok ? applySettings(parsed) : parsed.error;
+    };
+    reader.onerror = () => { settingsStatus.textContent = 'อ่านไฟล์ไม่สำเร็จ (' + file.name + ')'; };
+    reader.readAsText(file);
+    settingsUpload.value = ''; // so picking the same file again still fires 'change'
   });
+
+  settingsDownloadBtn.addEventListener('click', () => {
+    const text = buildSettingsJson({
+      woMapping: mappingGrid.getRows(),
+      roleCeilings: roleCeilingsGrid.getRows(),
+      people: peopleRolesGrid.getRows()
+    });
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wo-timesheet-settings.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  updateSettingsEmptyHint();
 
   // Shared by the file picker and drag-and-drop onto #xlsx-dropzone.
   function loadXlsxFile(file) {
@@ -2518,7 +2581,7 @@ if (typeof module !== 'undefined' && module.exports) {
     const timesheetText = timesheetInput.value;
 
     if (!mappingText.trim()) {
-      addBanner('error', 'กรุณาวางตาราง WO Mapping ก่อนกด Run');
+      addBanner('error', 'กรุณาวางตาราง WO Mapping ก่อนกด Run (หรือนำเข้าไฟล์ตั้งค่าในแท็บ ⚙ ตั้งค่า)');
       renderRebalance();
       return;
     }

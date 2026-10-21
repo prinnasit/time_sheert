@@ -4,12 +4,12 @@ const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 const requiredIds = [
-  'mapping-grid', 'mapping-add-row-btn', 'mapping-input', 'clear-mapping-btn', 'mapping-reset-btn', 'mapping-status',
+  'mapping-grid', 'mapping-add-row-btn', 'mapping-input', 'clear-mapping-btn', 'mapping-status',
   'timesheet-grid', 'timesheet-add-row-btn', 'timesheet-input', 'xlsx-upload', 'upload-status',
   'run-btn', 'banners',
   'table1-container', 'copy-table1-btn', 'download-table1-btn', 'new-month-btn', 'new-month-status',
   'table2-container', 'copy-table2-btn', 'download-table2-btn',
-  'role-ceilings-grid', 'role-ceilings-add-row-btn', 'role-ceilings-reset-btn', 'working-days-input', 'working-days-hint', 'people-roles-grid', 'people-roles-add-row-btn', 'people-roles-reset-btn', 'role-options',
+  'role-ceilings-grid', 'role-ceilings-add-row-btn', 'role-ceilings-clear-btn', 'working-days-input', 'working-days-hint', 'people-roles-grid', 'people-roles-add-row-btn', 'people-roles-clear-btn', 'role-options', 'settings-upload', 'settings-download-btn', 'settings-status', 'settings-empty-hint',
   'rebalance-card', 'rebalance-container',
   'changelog-card', 'changelog-container', 'copy-changelog-btn', 'download-changelog-btn',
   'rebalance-badge', 'results-empty', 'kpi-tiles', 'results-over-banner', 'rebalance-empty', 'timesheet-rebalance-strip', 'xlsx-dropzone'

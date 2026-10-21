@@ -3,3 +3,4 @@
 *.xlsx
 .claude/worktrees/
 __pycache__/
+private/

@@ -25,4 +25,26 @@ const timesheetText = [
   dayRow('Malee Somsri', 'KSB_Lead', 'W999-UNKNOWN', 'Some Unknown WO', '1', { 1: 8, 2: 8 })
 ].join('\n');
 
-module.exports = { mappingText, timesheetText };
+// Fake settings (the real WO list, people and ceilings live in a private
+// .json file that is never committed). Same shape as the settings file.
+const settingsSample = {
+  version: 1,
+  woMapping: [
+    { wo: 'WO-C1', category: 'CAPEX', name: 'Sample capex project' },
+    { wo: 'WO-O1', category: 'OPEX', name: 'Sample support' },
+    { wo: 'WO-Z1', category: 'Non Charge', name: 'Leave' }
+  ],
+  roleCeilings: [
+    { role: 'Automated Tester', z: 3, capex: 14, opex: 3 },
+    { role: 'Developer', z: 2, capex: 16, opex: 2 },
+    { role: 'Incident Management Engineer', z: 1, capex: 0, opex: 19 },
+    { role: 'Quality Assurance Lead', z: 8, capex: 9.6, opex: 2.4 }
+  ],
+  people: [
+    { name: 'Person One', role: 'Developer' },
+    { name: 'Person Two', role: 'Automated Tester' }
+  ]
+};
+const settingsRoleCeilingRows = settingsSample.roleCeilings.map(r => [r.role, String(r.z), String(r.capex), String(r.opex)]);
+
+module.exports = { mappingText, timesheetText, settingsSample, settingsRoleCeilingRows };

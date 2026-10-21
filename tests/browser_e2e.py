@@ -7,6 +7,7 @@
 # Setup (once):  pip install playwright && python -m playwright install chromium
 # Run:           python tests/browser_e2e.py
 # Needs internet: index.html loads SheetJS (xlsx) from the jsDelivr CDN.
+import json
 import re
 import sys
 import tempfile
@@ -20,6 +21,28 @@ SAMPLE_XLSX = ROOT / 'krungsri.xlsx'
 DOWNLOAD_DIR = Path(tempfile.mkdtemp(prefix='wo-e2e-'))
 
 failures = 0
+
+# Fake settings. The real WO list, people and role ceilings are NOT in the
+# page (it is published on GitHub Pages) - they come from a private .json
+# file, imported from the settings tab. Tests import this stand-in instead.
+SETTINGS_SAMPLE = {
+    'version': 1,
+    'woMapping': [
+        {'wo': 'WO-C1', 'category': 'CAPEX', 'name': 'Sample capex project'},
+        {'wo': 'WO-O1', 'category': 'OPEX', 'name': 'Sample support'},
+        {'wo': 'WO-Z1', 'category': 'Non Charge', 'name': 'Leave'},
+    ],
+    'roleCeilings': [
+        {'role': 'Automated Tester', 'z': 3, 'capex': 14, 'opex': 3},
+        {'role': 'Developer', 'z': 2, 'capex': 16, 'opex': 2},
+        {'role': 'Incident Management Engineer', 'z': 1, 'capex': 0, 'opex': 19},
+        {'role': 'Quality Assurance Lead', 'z': 8, 'capex': 9.6, 'opex': 2.4},
+    ],
+    'people': [
+        {'name': 'Person One', 'role': 'Developer'},
+        {'name': 'Person Two', 'role': 'Automated Tester'},
+    ],
+}
 
 
 def test(name, fn, browser):
@@ -160,14 +183,22 @@ def download(page, click_selector):
     return d.suggested_filename, path
 
 
+def import_settings(page, settings):
+    # Same as picking a .json file with the settings tab's import button.
+    path = DOWNLOAD_DIR / 'settings-import.json'
+    path.write_text(json.dumps(settings), encoding='utf-8')
+    reveal(page, '#settings-upload').set_input_files(str(path))
+
+
 def paste_mapping(page, mapping):
-    # The grid starts with DEFAULT_WO_MAPPING; clear it so only the
-    # scenario's own WOs are in play.
     click(page, '#clear-mapping-btn')
     paste_into_grid(page, 'mapping-grid', tsv(mapping))
 
 
 def setup(page, mapping, timesheet, people=None, working_days='20'):
+    # The page ships with no role ceilings: import them like a user would.
+    import_settings(page, {'roleCeilings': SETTINGS_SAMPLE['roleCeilings']})
+    expect(grid_cell(page, 'role-ceilings-grid', 0, 0)).to_have_value('Automated Tester')
     paste_mapping(page, mapping)
     paste_into_grid(page, 'timesheet-grid', tsv(timesheet))
     if people:
@@ -312,7 +343,8 @@ def run_without_mapping_shows_error(page):
 
 
 def run_without_timesheet_shows_error(page):
-    click(page, '#run-btn')  # the default mapping is enough to get past the mapping check
+    paste_mapping(page, MAPPING)  # a mapping is needed to get past the mapping check
+    click(page, '#run-btn')
     expect(page.locator('#banners')).to_contain_text('กรุณาวางข้อมูล Timesheet ก่อนกด Run')
 
 
@@ -819,41 +851,77 @@ def dragging_over_the_dropzone_highlights_it(page):
 
 # ---- Persistence + small controls ------------------------------------------
 
-def first_visit_loads_the_default_wo_mapping(page):
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
-    expect(grid_cell(page, 'mapping-grid', 0, 1)).to_have_value('CAPEX')
-    expect(grid_cell(page, 'mapping-grid', 0, 2)).to_have_value('ONE Corporate MVP1')
-    expect(grid_cell(page, 'mapping-grid', 6, 1)).to_have_value('OPEX')         # WO-07
-    expect(grid_cell(page, 'mapping-grid', 13, 0)).to_have_value('Z02')
-    expect(grid_cell(page, 'mapping-grid', 13, 1)).to_have_value('Non Charge')
-    # The defaults are usable straight away: Run classifies them without warnings.
-    paste_into_grid(page, 'timesheet-grid', tsv([
-        timesheet_row('Ann', 'S1', 'WO-01', {1: 8}),
-        timesheet_row('Ann', 'S1', 'Z01', {2: 8}),
-    ]))
+def first_visit_has_no_built_in_data_and_asks_for_the_settings_file(page):
+    for grid_id in ('mapping-grid', 'role-ceilings-grid', 'people-roles-grid'):
+        expect(grid_cell(page, grid_id, 0, 0)).to_have_value('')
+    reveal(page, '#settings-empty-hint')
+    expect(page.locator('#settings-empty-hint')).to_be_visible()
+    # Nothing real is shipped in the page itself.
+    html = (ROOT / 'index.html').read_text(encoding='utf-8')
+    assert 'Tarath' not in html and 'W2026-' not in html, 'real names / WO numbers are back in index.html'
+
+
+def importing_a_settings_file_fills_all_three_tables(page):
+    import_settings(page, SETTINGS_SAMPLE)
+    status = page.locator('#settings-status')
+    expect(status).to_contain_text('WO 3 รายการ')
+    expect(status).to_contain_text('ตำแหน่ง 4 ตำแหน่ง')
+    expect(status).to_contain_text('พนักงาน 2 คน')
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-C1')
+    expect(grid_cell(page, 'mapping-grid', 2, 1)).to_have_value('Non Charge')
+    expect(grid_row_where(page, 'role-ceilings-grid', 0, 'Quality Assurance Lead').locator('input').nth(2)).to_have_value('9.6')
+    expect(grid_cell(page, 'people-roles-grid', 1, 0)).to_have_value('Person Two')
+    expect(page.locator('#settings-empty-hint')).to_be_hidden()
+    # Remembered after a reload, and usable straight away: Run classifies the imported WOs.
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Developer')
+    paste_into_grid(page, 'timesheet-grid', tsv([timesheet_row('Ann', 'S1', 'WO-C1', {1: 8})]))
     click(page, '#run-btn')
-    expect(table1_cell(page, 'S1', 'WO-01')).to_have_text('1.00')
+    expect(table1_cell(page, 'S1', 'WO-C1')).to_have_text('1.00')
     expect(page.locator('#banners')).to_be_empty()
 
 
-def first_visit_loads_the_default_people_roles(page):
-    expect(grid_cell(page, 'people-roles-grid', 0, 0)).to_have_value('Person 01')
-    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Head of Innovation')
-    expect(grid_cell(page, 'people-roles-grid', 9, 0)).to_have_value('Person 10')
-    expect(grid_cell(page, 'people-roles-grid', 9, 1)).to_have_value('Developer')
-    expect(grid_cell(page, 'people-roles-grid', 36, 0)).to_have_value('Person 37')
+def a_partial_settings_file_leaves_the_other_tables_alone(page):
+    import_settings(page, SETTINGS_SAMPLE)
+    import_settings(page, {'people': [{'name': 'Somebody Else', 'role': 'Developer'}]})
+    expect(grid_cell(page, 'people-roles-grid', 0, 0)).to_have_value('Somebody Else')
+    expect(grid_cell(page, 'people-roles-grid', 1, 0)).to_have_value('')  # replaced, not merged
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-C1')  # untouched
+    expect(grid_row_where(page, 'role-ceilings-grid', 0, 'Developer')).to_be_visible()  # untouched
 
 
-def people_roles_reset_restores_the_defaults(page):
-    fill(page, grid_cell(page, 'people-roles-grid', 0, 1), 'Developer')
-    click(page, '#people-roles-reset-btn')
-    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Head of Innovation')
-    page.reload()
-    page.wait_for_load_state('networkidle')
-    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Head of Innovation')
+def a_bad_settings_file_shows_an_error_and_changes_nothing(page):
+    import_settings(page, SETTINGS_SAMPLE)
+    path = DOWNLOAD_DIR / 'broken.json'
+    path.write_text('this is not json', encoding='utf-8')
+    reveal(page, '#settings-upload').set_input_files(str(path))
+    expect(page.locator('#settings-status')).to_contain_text('ไม่ใช่ JSON')
+    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-C1')
+    path.write_text('{"foo": 1}', encoding='utf-8')
+    reveal(page, '#settings-upload').set_input_files(str(path))
+    expect(page.locator('#settings-status')).to_contain_text('ไม่พบข้อมูล')
 
 
-def an_edited_mapping_replaces_the_defaults_after_a_reload(page):
+def the_settings_download_can_be_imported_back(page):
+    import_settings(page, SETTINGS_SAMPLE)
+    fill(page, grid_cell(page, 'people-roles-grid', 0, 1), 'Automated Tester')
+    name, path = download(page, '#settings-download-btn')
+    assert name == 'wo-timesheet-settings.json', name
+    data = json.loads(path.read_text(encoding='utf-8'))
+    assert data['version'] == 1
+    assert [w['wo'] for w in data['woMapping']] == ['WO-C1', 'WO-O1', 'WO-Z1']
+    assert data['people'][0] == {'name': 'Person One', 'role': 'Automated Tester'}
+    click(page, '#people-roles-clear-btn')
+    click(page, '#clear-mapping-btn')
+    expect(grid_cell(page, 'people-roles-grid', 0, 0)).to_have_value('')
+    reveal(page, '#settings-upload').set_input_files(str(path))
+    expect(grid_cell(page, 'people-roles-grid', 0, 1)).to_have_value('Automated Tester')
+    expect(grid_cell(page, 'mapping-grid', 1, 0)).to_have_value('WO-O1')
+
+
+def an_edited_mapping_is_remembered_after_a_reload(page):
+    import_settings(page, SETTINGS_SAMPLE)
     fill(page, grid_cell(page, 'mapping-grid', 0, 2), 'Renamed WO')
     page.reload()
     page.wait_for_load_state('networkidle')
@@ -872,49 +940,17 @@ def mapping_roles_and_working_days_survive_a_reload(page):
     expect(page.locator('#working-days-input')).to_have_value('18')
 
 
-def clear_mapping_empties_the_grid(page):
+def clear_buttons_empty_each_settings_table_and_stay_empty_after_a_reload(page):
+    import_settings(page, SETTINGS_SAMPLE)
     click(page, '#clear-mapping-btn')
     expect(page.locator('#mapping-status')).to_have_text('Cleared')
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('')
-    # An empty mapping is never useful, so a reload starts from the defaults.
+    click(page, '#role-ceilings-clear-btn')
+    click(page, '#people-roles-clear-btn')
+    expect(page.locator('#settings-empty-hint')).to_be_visible()
     page.reload()
     page.wait_for_load_state('networkidle')
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
-
-
-def saved_but_empty_tables_fall_back_to_the_defaults(page):
-    # What an older visit can leave behind: a mapping with only its header
-    # row, and Role Ceilings with every row deleted.
-    page.evaluate('''() => {
-        localStorage.setItem('woTimesheetSummary.mappingText', 'WO No.\\tCategory\\tWO Name\\tRemaining (เดือนที่แล้ว)\\n\\t\\t\\t');
-        localStorage.setItem('woTimesheetSummary.roleCeilings', '[]');
-    }''')
-    page.reload()
-    page.wait_for_load_state('networkidle')
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
-    expect(grid_cell(page, 'role-ceilings-grid', 0, 0)).to_have_value('Automated Tester')
-
-
-def mapping_reset_restores_the_defaults(page):
-    paste_mapping(page, MAPPING)
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('C1')
-    click(page, '#mapping-reset-btn')
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
-    expect(grid_cell(page, 'mapping-grid', 4, 0)).to_have_value('WO-05')  # pasted rows are gone, not merged
-    page.reload()
-    page.wait_for_load_state('networkidle')
-    expect(grid_cell(page, 'mapping-grid', 0, 0)).to_have_value('WO-01')
-
-
-def role_ceilings_reset_restores_defaults(page):
-    fill(page, grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3), '99')
-    page.reload()
-    page.wait_for_load_state('networkidle')
-    # The edit is remembered across reloads...
-    expect(grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3)).to_have_value('99')
-    # ...until คืนค่าเริ่มต้น puts the default (Developer OPEX = 2 MD) back.
-    click(page, '#role-ceilings-reset-btn')
-    expect(grid_row_where(page, 'role-ceilings-grid', 0, 'Developer').locator('input').nth(3)).to_have_value('2')
+    for grid_id in ('mapping-grid', 'role-ceilings-grid', 'people-roles-grid'):
+        expect(grid_cell(page, grid_id, 0, 0)).to_have_value('')
 
 
 def switching_tabs_scrolls_back_to_the_top(page):
@@ -997,15 +1033,14 @@ TESTS = [
     ('uploading a file that is not really .xlsx shows an error', upload_non_xlsx_shows_error),
     ('dropping a file on the dropzone goes through the upload handler', dropping_a_file_on_the_dropzone_uses_the_upload_handler),
     ('dragging over the dropzone highlights it until the drag leaves', dragging_over_the_dropzone_highlights_it),
-    ('the first visit loads the default WO Mapping, ready to Run', first_visit_loads_the_default_wo_mapping),
-    ('the first visit loads the default People → Role list', first_visit_loads_the_default_people_roles),
-    ('คืนค่าเริ่มต้น on People → Role replaces the grid with the defaults', people_roles_reset_restores_the_defaults),
-    ('an edited mapping replaces the defaults after a reload', an_edited_mapping_replaces_the_defaults_after_a_reload),
+    ('the first visit has no built-in data and asks for the settings file', first_visit_has_no_built_in_data_and_asks_for_the_settings_file),
+    ('importing a settings file fills all three tables, survives a reload and is ready to Run', importing_a_settings_file_fills_all_three_tables),
+    ('a settings file with only some sections leaves the other tables alone', a_partial_settings_file_leaves_the_other_tables_alone),
+    ('a broken settings file shows an error and changes nothing', a_bad_settings_file_shows_an_error_and_changes_nothing),
+    ('the settings download can be imported back', the_settings_download_can_be_imported_back),
+    ('an edited mapping is remembered after a reload', an_edited_mapping_is_remembered_after_a_reload),
     ('mapping, people roles and working days survive a reload', mapping_roles_and_working_days_survive_a_reload),
-    ('Clear empties the Mapping grid; a reload brings the defaults back', clear_mapping_empties_the_grid),
-    ('a saved-but-empty Mapping / Role Ceilings falls back to the defaults', saved_but_empty_tables_fall_back_to_the_defaults),
-    ('คืนค่าเริ่มต้น on WO Mapping replaces the grid with the defaults', mapping_reset_restores_the_defaults),
-    ('คืนค่าเริ่มต้น restores the default Role Ceilings', role_ceilings_reset_restores_defaults),
+    ('Clear empties each settings table and it stays empty after a reload', clear_buttons_empty_each_settings_table_and_stay_empty_after_a_reload),
 ]
 
 with sync_playwright() as p:
