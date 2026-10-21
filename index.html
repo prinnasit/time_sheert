@@ -2,7 +2,11 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WO Timesheet Summary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -183,6 +187,19 @@ function buildTable2(classifiedRows) {
       opexPct: chargeable > 0 ? o / chargeable : null
     };
   });
+}
+
+// Headline numbers for the results tab: squad count, squads over the OPEX
+// threshold (in Table 2 order), total Man-Day, and the OPEX share overall.
+function summaryKpis(table1, table2, threshold) {
+  const capex = table2.reduce((a, r) => a + r.capexMH, 0);
+  const opex = table2.reduce((a, r) => a + r.opexMH, 0);
+  return {
+    squads: table2.length,
+    overSquads: table2.filter(r => r.opexPct != null && r.opexPct > threshold).map(r => r.sq),
+    totalMD: table1.grandTotal,
+    opexPct: capex + opex > 0 ? opex / (capex + opex) : null
+  };
 }
 
 function formatMH(n) {
@@ -900,7 +917,7 @@ function summarizeRows(rowArrays, mapping) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeWO, normalizeCategory, parseMappingText, rowsFromPastedText, splitPasteBlock,
-    parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, MH_PER_DAY,
+    parseNum, parseDataRows, classifyRows, buildTable1, buildTable2, summaryKpis, MH_PER_DAY,
     CATEGORY_ORDER, CATEGORY_LABEL,
     formatMH, formatPct, neutralizeFormula, toCSV, toTSV, table1ToRows, table2ToRows,
     OPEX_THRESHOLD, BASE_MONTH_MD, DEFAULT_ROLE_CEILINGS, DEFAULT_WO_MAPPING, DEFAULT_PEOPLE_ROLES, TIMESHEET_HEADER, normalizeKey,
@@ -924,11 +941,15 @@ if (typeof module !== 'undefined' && module.exports) {
     --accent: #2f6fed;
     --accent-hover: #2559c7;
     --accent-contrast: #ffffff;
-    --radius: 12px;
+    --radius: 14px;
     --radius-sm: 8px;
     --shadow: 0 1px 2px rgba(20,24,34,.04), 0 8px 24px rgba(20,24,34,.06);
     --warn-bg: #fff6df; --warn-text: #6b4c00; --warn-border: #f0d999;
     --error-bg: #fdecec; --error-text: #8a2a22; --error-border: #f3c3bd;
+    --capex-bg: #e3f5e9; --capex-text: #1e6b3a;
+    --opex-bg: #e3edfc; --opex-text: #1f4f9c;
+    --noncharge-bg: #fdf3d7; --noncharge-text: #7a5a00;
+    --unmapped-bg: #fbe4e4; --unmapped-text: #8a2a22;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -944,19 +965,56 @@ if (typeof module !== 'undefined' && module.exports) {
       --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.4);
       --warn-bg: #372b0d; --warn-text: #f2cf6e; --warn-border: #5a4818;
       --error-bg: #391d1a; --error-text: #f4a89d; --error-border: #5c2d27;
+      --capex-bg: #16301f; --capex-text: #8fd6a6;
+      --opex-bg: #172640; --opex-text: #9cbcf5;
+      --noncharge-bg: #33290f; --noncharge-text: #f0cf75;
+      --unmapped-bg: #3a1d1b; --unmapped-text: #f4a89d;
     }
   }
   * { box-sizing: border-box; }
   body {
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
     background: var(--bg);
     color: var(--text);
-    max-width: 880px;
-    margin: 0 auto;
-    padding: 40px 20px 64px;
+    margin: 0;
+    padding: 0 0 64px;
     line-height: 1.5;
   }
-  header.page-head { margin-bottom: 28px; }
+  .app-bar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: 0 1px 2px rgba(20,24,34,.05); }
+  .app-bar-inner, main.page { max-width: 1180px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+  .app-bar-inner { padding-top: 16px; }
+  main.page { padding-top: 24px; }
+  nav.tabs { display: flex; gap: 4px; margin-top: 10px; overflow-x: auto; }
+  nav.tabs a { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .92rem; border-bottom: 3px solid transparent; white-space: nowrap; }
+  nav.tabs a:hover { color: var(--text); }
+  nav.tabs a.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav.tabs a.tab-settings { margin-left: auto; }
+  .tab-num { width: 22px; height: 22px; border-radius: 50%; background: var(--surface-alt); border: 1px solid var(--border); font-size: .75rem; display: inline-flex; align-items: center; justify-content: center; }
+  nav.tabs a.active .tab-num { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+  .tab-badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--error-text); color: var(--surface); font-size: .72rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .empty-state { padding: 48px 24px; text-align: center; color: var(--text-muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+  .empty-state a { color: var(--accent); font-weight: 600; }
+  .kpi-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 18px; }
+  .kpi-label { color: var(--text-muted); font-size: .8rem; font-weight: 600; }
+  .kpi-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi.kpi-alert { border-color: var(--error-border); background: var(--error-bg); }
+  .kpi.kpi-alert .kpi-value { color: var(--error-text); }
+  #results-over-banner, #timesheet-rebalance-strip { margin: 0 0 18px; }
+  #results-over-banner a, #timesheet-rebalance-strip a { color: inherit; font-weight: 700; margin-left: 8px; }
+  @media (max-width: 720px) { .kpi-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 22px; margin-bottom: 14px; border: 2px dashed var(--border); border-radius: var(--radius); background: var(--surface-alt); color: var(--text-muted); text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .dropzone:hover, .dropzone.dragging { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--text); }
+  .dropzone-icon { font-size: 1.6rem; line-height: 1; }
+  .dropzone #upload-status { margin-top: 4px; }
+  th.cat-capex { background: var(--capex-bg); color: var(--capex-text); }
+  th.cat-opex { background: var(--opex-bg); color: var(--opex-text); }
+  th.cat-noncharge { background: var(--noncharge-bg); color: var(--noncharge-text); }
+  th.cat-unmapped { background: var(--unmapped-bg); color: var(--unmapped-text); }
+  .table-scroll tbody tr:nth-child(even):not(.summary-row):not(.remaining-row) { background: color-mix(in srgb, var(--surface-alt) 70%, transparent); }
+  .table-scroll tbody tr:hover:not(.summary-row):not(.remaining-row) { background: var(--surface-alt); }
+  #table1-container, #table2-container, #changelog-container { max-height: 70vh; overflow: auto; }
+  #table1-container thead, #table2-container thead, #changelog-container thead { position: sticky; top: 0; z-index: 1; }
   h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -.01em; }
   .subtitle { color: var(--text-muted); font-size: 0.92rem; margin: 0; }
   .card {
@@ -964,19 +1022,10 @@ if (typeof module !== 'undefined' && module.exports) {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
-    padding: 20px 22px;
+    padding: 22px 24px;
     margin-bottom: 20px;
   }
   .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-  .step-badge {
-    flex: none;
-    width: 26px; height: 26px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-contrast);
-    font-size: 0.8rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-  }
   .card-head h2 { font-size: 1.02rem; margin: 0; }
   .card-desc { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 12px; }
   textarea {
@@ -1020,7 +1069,7 @@ if (typeof module !== 'undefined' && module.exports) {
     padding: 11px 28px;
   }
   .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-  .run-row { margin: 4px 0 6px; }
+  .run-row { display: flex; align-items: center; gap: 14px; margin: 4px 0 6px; }
   .banner {
     padding: 10px 14px;
     border-radius: var(--radius-sm);
@@ -1133,101 +1182,131 @@ if (typeof module !== 'undefined' && module.exports) {
   #rebalance-container td.rb-row-msg { white-space: normal; min-width: 16rem; }
 </style>
 
-<header class="page-head">
-  <h1>WO Timesheet Summary</h1>
-  <p class="subtitle">แยก Work Order เป็น CAPEX / OPEX / Non Charge อัตโนมัติ พร้อมสรุปและส่งออกได้ทันที</p>
+<header class="app-bar">
+  <div class="app-bar-inner">
+    <div class="brand">
+      <h1>WO Timesheet Summary</h1>
+      <p class="subtitle">แยก Work Order เป็น CAPEX / OPEX / Non Charge อัตโนมัติ พร้อมสรุปและส่งออกได้ทันที</p>
+    </div>
+    <nav class="tabs" aria-label="เมนูหลัก">
+      <a href="#timesheet" data-view-link="timesheet"><span class="tab-num">1</span>Timesheet</a>
+      <a href="#results" data-view-link="results"><span class="tab-num">2</span>ผลลัพธ์</a>
+      <a href="#rebalance" data-view-link="rebalance"><span class="tab-num">3</span>แก้เกิน 80%<span id="rebalance-badge" class="tab-badge" hidden></span></a>
+      <a href="#settings" data-view-link="settings" class="tab-settings">⚙ ตั้งค่า</a>
+    </nav>
+  </div>
 </header>
 
-<section class="card">
-  <div class="card-head"><span class="step-badge">1</span><h2>WO Mapping</h2></div>
-  <p class="card-desc">พิมพ์หรือวาง (paste) ตาราง WO No. / Category / WO Name ทีละช่อง — วางข้อมูลก้อนใหญ่จาก Excel ลงในช่องแรกได้เลย มันจะกระจายลงทุกช่องให้อัตโนมัติเหมือนใน Excel</p>
-  <div id="mapping-grid"></div>
-  <button id="mapping-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <textarea id="mapping-input" hidden></textarea>
-  <div class="row">
-    <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
-    <button id="mapping-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
-    <span id="mapping-status" class="status-text"></span>
-  </div>
-</section>
-
-<section class="card">
-  <div class="card-head"><span class="step-badge">2</span><h2>Timesheet Input</h2></div>
-  <p class="card-desc">พิมพ์หรือวางข้อมูลทีละช่อง (เลื่อนดูขวาได้ถึง Day31) หรืออัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx</p>
-  <div id="timesheet-grid"></div>
-  <button id="timesheet-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <textarea id="timesheet-input" hidden></textarea>
-  <div class="row">
-    <label class="btn">Upload .xlsx<input type="file" id="xlsx-upload" accept=".xlsx" hidden></label>
-    <span id="upload-status" class="status-text"></span>
-  </div>
-</section>
-
-<section class="card">
-  <div class="card-head"><span class="step-badge">3</span><h2>Role Ceilings</h2></div>
-  <p class="card-desc">เพดาน Man-Day ต่อคนต่อเดือนของแต่ละตำแหน่ง (Z01-Z03 / CAPEX / OPEX) — ใช้เลือกว่าจะแก้ Timesheet ของใครเมื่อ squad มี OPEX เกิน 80% แก้ไขได้และระบบจำให้ เพดานจริง = ค่าในตาราง × วันทำงาน ÷ 20</p>
-  <div id="role-ceilings-grid"></div>
-  <button id="role-ceilings-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <div class="row">
-    <button id="role-ceilings-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
-    <label class="status-text" for="working-days-input">วันทำงานเดือนนี้:</label>
-    <input id="working-days-input" type="number" min="1" max="31" step="1">
-    <span id="working-days-hint" class="status-text"></span>
-  </div>
-</section>
-
-<section class="card">
-  <div class="card-head"><span class="step-badge">4</span><h2>People &rarr; Role</h2></div>
-  <p class="card-desc">ใส่ชื่อ (ตรงกับ Name-Surname ใน Timesheet) และตำแหน่งของแต่ละคน — วางจาก Excel ได้ ระบบจำให้ เดือนถัดไปไม่ต้องกรอกใหม่ คนที่ยังไม่มีตำแหน่งจะไม่ถูกเลือกมาแก้</p>
-  <div id="people-roles-grid"></div>
-  <button id="people-roles-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
-  <div class="row">
-    <button id="people-roles-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
-  </div>
-  <datalist id="role-options"></datalist>
-</section>
-
-<div class="run-row">
-  <button id="run-btn" class="btn btn-primary" type="button">&#9654; Run</button>
-</div>
+<main class="page">
 <div id="banners"></div>
 
-<section class="card">
-  <div class="card-head"><h2>Table 1 &middot; Squad &times; WO (CAPEX / OPEX / Non Charge) &mdash; หน่วย: Man-Day</h2></div>
-  <div class="table-actions">
-    <button id="copy-table1-btn" class="btn" type="button">Copy</button>
-    <button id="download-table1-btn" class="btn" type="button">Download CSV</button>
-  </div>
-  <div id="table1-container" class="table-scroll"></div>
-  <p class="card-desc" style="margin-top: 12px;">"Remaining (เดือนที่แล้ว)" พิมพ์เองได้ (จำไว้ให้) ส่วน "Remaining (เดือนนี้)" คำนวณอัตโนมัติ = เดือนที่แล้ว − ที่ทำได้เดือนนี้ พอจะเริ่มเดือนถัดไป กดปุ่มด้านล่างเพื่อเลื่อนยอดคงเหลือ</p>
-  <div class="row">
-    <button id="new-month-btn" class="btn" type="button">&#8635; ขึ้นเดือนใหม่</button>
-    <span id="new-month-status" class="status-text"></span>
+<section class="view" data-view="timesheet">
+  <div id="timesheet-rebalance-strip" class="banner warn strip" hidden></div>
+  <section class="card">
+    <div class="card-head"><h2>Timesheet Input</h2></div>
+    <p class="card-desc">อัปโหลดไฟล์ .xlsx ที่มีโครงสร้างเดียวกับ krungsri.xlsx หรือพิมพ์ / วางข้อมูลลงตารางทีละช่อง (เลื่อนดูขวาได้ถึง Day31)</p>
+    <label id="xlsx-dropzone" class="dropzone">
+      <input type="file" id="xlsx-upload" accept=".xlsx" hidden>
+      <span class="dropzone-icon" aria-hidden="true">📄</span>
+      <span class="dropzone-text"><strong>ลากไฟล์ .xlsx มาวางตรงนี้</strong> หรือ คลิกเพื่อเลือกไฟล์</span>
+      <span id="upload-status" class="status-text"></span>
+    </label>
+    <div id="timesheet-grid"></div>
+    <button id="timesheet-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <textarea id="timesheet-input" hidden></textarea>
+    <div class="row">
+      <label class="status-text" for="working-days-input">วันทำงานเดือนนี้:</label>
+      <input id="working-days-input" type="number" min="1" max="31" step="1">
+      <span id="working-days-hint" class="status-text"></span>
+    </div>
+  </section>
+  <div class="run-row">
+    <button id="run-btn" class="btn btn-primary" type="button">&#9654; Run</button>
+    <span class="status-text">กด Run แล้วระบบจะพาไปหน้าผลลัพธ์</span>
   </div>
 </section>
 
-<section class="card">
-  <div class="card-head"><h2>Table 2 &middot; % CAPEX / OPEX per Squad</h2></div>
-  <div class="table-actions">
-    <button id="copy-table2-btn" class="btn" type="button">Copy</button>
-    <button id="download-table2-btn" class="btn" type="button">Download CSV</button>
-  </div>
-  <div id="table2-container" class="table-scroll"></div>
+<section class="view" data-view="results" hidden>
+  <div id="results-empty" class="empty-state">ยังไม่มีผลลัพธ์ — ไปที่แท็บ <a href="#timesheet">Timesheet</a> แล้วกด Run</div>
+  <div id="kpi-tiles" class="kpi-tiles" hidden></div>
+  <div id="results-over-banner" class="banner error" hidden></div>
+
+  <section class="card">
+    <div class="card-head"><h2>Table 2 &middot; % CAPEX / OPEX per Squad</h2></div>
+    <div class="table-actions">
+      <button id="copy-table2-btn" class="btn" type="button">Copy</button>
+      <button id="download-table2-btn" class="btn" type="button">Download CSV</button>
+    </div>
+    <div id="table2-container" class="table-scroll"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Table 1 &middot; Squad &times; WO (CAPEX / OPEX / Non Charge) &mdash; หน่วย: Man-Day</h2></div>
+    <div class="table-actions">
+      <button id="copy-table1-btn" class="btn" type="button">Copy</button>
+      <button id="download-table1-btn" class="btn" type="button">Download CSV</button>
+    </div>
+    <div id="table1-container" class="table-scroll"></div>
+    <p class="card-desc" style="margin-top: 12px;">"Remaining (เดือนที่แล้ว)" พิมพ์เองได้ (จำไว้ให้) ส่วน "Remaining (เดือนนี้)" คำนวณอัตโนมัติ = เดือนที่แล้ว − ที่ทำได้เดือนนี้ พอจะเริ่มเดือนถัดไป กดปุ่มด้านล่างเพื่อเลื่อนยอดคงเหลือ</p>
+    <div class="row">
+      <button id="new-month-btn" class="btn" type="button">&#8635; ขึ้นเดือนใหม่</button>
+      <span id="new-month-status" class="status-text"></span>
+    </div>
+  </section>
 </section>
 
-<section class="card" id="rebalance-card" hidden>
-  <div class="card-head"><h2>Rebalance &middot; ลด OPEX ให้ไม่เกิน 80%</h2></div>
-  <div id="rebalance-container"></div>
+<section class="view" data-view="rebalance" hidden>
+  <div id="rebalance-empty" class="empty-state">ไม่มี squad ที่ OPEX เกิน 80% 🎉</div>
+  <section class="card" id="rebalance-card" hidden>
+    <div class="card-head"><h2>Rebalance &middot; ลด OPEX ให้ไม่เกิน 80%</h2></div>
+    <div id="rebalance-container"></div>
+  </section>
+  <section class="card" id="changelog-card" hidden>
+    <div class="card-head"><h2>ประวัติการแก้ไข Timesheet</h2></div>
+    <div class="table-actions">
+      <button id="copy-changelog-btn" class="btn" type="button">Copy</button>
+      <button id="download-changelog-btn" class="btn" type="button">Download CSV</button>
+    </div>
+    <div id="changelog-container" class="table-scroll"></div>
+  </section>
 </section>
 
-<section class="card" id="changelog-card" hidden>
-  <div class="card-head"><h2>ประวัติการแก้ไข Timesheet</h2></div>
-  <div class="table-actions">
-    <button id="copy-changelog-btn" class="btn" type="button">Copy</button>
-    <button id="download-changelog-btn" class="btn" type="button">Download CSV</button>
-  </div>
-  <div id="changelog-container" class="table-scroll"></div>
+<section class="view" data-view="settings" hidden>
+  <section class="card">
+    <div class="card-head"><h2>WO Mapping</h2></div>
+    <p class="card-desc">พิมพ์หรือวาง (paste) ตาราง WO No. / Category / WO Name ทีละช่อง — วางข้อมูลก้อนใหญ่จาก Excel ลงในช่องแรกได้เลย มันจะกระจายลงทุกช่องให้อัตโนมัติเหมือนใน Excel</p>
+    <div id="mapping-grid"></div>
+    <button id="mapping-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <textarea id="mapping-input" hidden></textarea>
+    <div class="row">
+      <button id="clear-mapping-btn" class="btn" type="button">Clear</button>
+      <button id="mapping-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+      <span id="mapping-status" class="status-text"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Role Ceilings</h2></div>
+    <p class="card-desc">เพดาน Man-Day ต่อคนต่อเดือนของแต่ละตำแหน่ง (Z01-Z03 / CAPEX / OPEX) — ใช้เลือกว่าจะแก้ Timesheet ของใครเมื่อ squad มี OPEX เกิน 80% แก้ไขได้และระบบจำให้ เพดานจริง = ค่าในตาราง × วันทำงาน ÷ 20 (วันทำงานตั้งได้ในแท็บ Timesheet)</p>
+    <div id="role-ceilings-grid"></div>
+    <button id="role-ceilings-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <div class="row">
+      <button id="role-ceilings-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>People &rarr; Role</h2></div>
+    <p class="card-desc">ใส่ชื่อ (ตรงกับ Name-Surname ใน Timesheet) และตำแหน่งของแต่ละคน — วางจาก Excel ได้ ระบบจำให้ เดือนถัดไปไม่ต้องกรอกใหม่ คนที่ยังไม่มีตำแหน่งจะไม่ถูกเลือกมาแก้</p>
+    <div id="people-roles-grid"></div>
+    <button id="people-roles-add-row-btn" class="btn btn-add-row" type="button">+ เพิ่มแถว</button>
+    <div class="row">
+      <button id="people-roles-reset-btn" class="btn" type="button">คืนค่าเริ่มต้น</button>
+    </div>
+    <datalist id="role-options"></datalist>
+  </section>
 </section>
+</main>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
@@ -1292,6 +1371,12 @@ if (typeof module !== 'undefined' && module.exports) {
   let autoRefreshTimer = null;
   let nextDraftId = 1;
   const rebalanceCard = document.getElementById('rebalance-card');
+  const rebalanceBadge = document.getElementById('rebalance-badge');
+  const resultsEmpty = document.getElementById('results-empty');
+  const kpiTiles = document.getElementById('kpi-tiles');
+  const resultsOverBanner = document.getElementById('results-over-banner');
+  const rebalanceEmpty = document.getElementById('rebalance-empty');
+  const timesheetStrip = document.getElementById('timesheet-rebalance-strip');
   const rebalanceContainer = document.getElementById('rebalance-container');
   const changelogCard = document.getElementById('changelog-card');
   const changelogContainer = document.getElementById('changelog-container');
@@ -1761,9 +1846,8 @@ if (typeof module !== 'undefined' && module.exports) {
     setTimeout(() => { mappingStatus.textContent = ''; }, 1500);
   });
 
-  xlsxUpload.addEventListener('change', () => {
-    const file = xlsxUpload.files[0];
-    if (!file) return;
+  // Shared by the file picker and drag-and-drop onto #xlsx-dropzone.
+  function loadXlsxFile(file) {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
@@ -1798,6 +1882,7 @@ if (typeof module !== 'undefined' && module.exports) {
         table1Container.innerHTML = ''; table2Container.innerHTML = '';
         lastTable1Rows = lastTable2Rows = null;
         lastTable1 = lastTable2 = null;
+        renderStatus();
         uploadStatus.textContent = 'Loaded ' + rows.length + ' row(s) from ' + file.name;
       } catch (err) {
         uploadStatus.textContent = 'Failed to read file: ' + err.message;
@@ -1806,10 +1891,25 @@ if (typeof module !== 'undefined' && module.exports) {
     reader.onerror = () => {
       uploadStatus.textContent = 'อ่านไฟล์ไม่สำเร็จ (' + file.name + ') — ไฟล์อาจเสียหายหรือถูกเปิดใช้งานอยู่';
     };
+    reader.readAsArrayBuffer(file);
+  }
+
+  xlsxUpload.addEventListener('change', () => {
+    const file = xlsxUpload.files[0];
     // Reset so selecting the exact same file again still fires 'change'
     // (browsers skip the event when the input's value hasn't changed).
     xlsxUpload.value = '';
-    reader.readAsArrayBuffer(file);
+    if (file) loadXlsxFile(file);
+  });
+
+  const xlsxDropzone = document.getElementById('xlsx-dropzone');
+  xlsxDropzone.addEventListener('dragover', (e) => { e.preventDefault(); xlsxDropzone.classList.add('dragging'); });
+  xlsxDropzone.addEventListener('dragleave', () => xlsxDropzone.classList.remove('dragging'));
+  xlsxDropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    xlsxDropzone.classList.remove('dragging');
+    const file = e.dataTransfer && e.dataTransfer.files[0];
+    if (file) loadXlsxFile(file);
   });
 
   function clearBanners() { banners.innerHTML = ''; }
@@ -1833,7 +1933,7 @@ if (typeof module !== 'undefined' && module.exports) {
     });
 
     let html = '<table><thead><tr><th></th>';
-    groups.forEach(g => { html += '<th colspan="' + g.span + '">' + CATEGORY_LABEL[g.category] + '</th>'; });
+    groups.forEach(g => { html += '<th colspan="' + g.span + '" class="cat-' + g.category.toLowerCase().replace('_', '') + '">' + CATEGORY_LABEL[g.category] + '</th>'; });
     html += '<th></th></tr>';
     html += '<tr><th rowspan="2">Squad</th>';
     table1.columns.forEach(col => { html += '<th>' + escapeHtml(col.woNo || col.label) + '</th>'; });
@@ -1932,6 +2032,7 @@ if (typeof module !== 'undefined' && module.exports) {
     if (lastTable2) { renderTable2(lastTable2); lastTable2Rows = table2ToRows(lastTable2); }
     syncMappingRemainingDisplay();
     if (lastTable1Rows) appendRemainingRows(lastTable1Rows, lastTable1);
+    renderStatus();
     newMonthStatus.textContent = 'อัปเดตแล้ว — "เดือนนี้" เลื่อนไปเป็น "เดือนที่แล้ว"';
     setTimeout(() => { newMonthStatus.textContent = ''; }, 2500);
   });
@@ -1963,7 +2064,7 @@ if (typeof module !== 'undefined' && module.exports) {
   function renderTable2(table2, beforeTable2) {
     const beforeBySq = {};
     if (beforeTable2) beforeTable2.forEach(r => { beforeBySq[r.sq] = r.opexPct; });
-    let html = '<table><thead><tr><th>Squad</th><th>CAPEX %</th><th>OPEX %</th>' +
+    let html = '<table><thead><tr><th>Squad</th><th class="cat-capex">CAPEX %</th><th class="cat-opex">OPEX %</th>' +
       (beforeTable2 ? '<th>OPEX % (เดิม)</th>' : '') + '</tr></thead><tbody>';
     table2.forEach(r => {
       const opexHigh = r.opexPct != null && r.opexPct > OPEX_PCT_ALERT_THRESHOLD;
@@ -2316,8 +2417,55 @@ if (typeof module !== 'undefined' && module.exports) {
     renderTablesAndRebalance(!!(opts && opts.replan));
     renderChangeLog();
     markChangedCells();
+    renderStatus();
   }
-  runBtn.addEventListener('click', () => refresh({ replan: true }));
+
+  // Everything that reflects "where things stand" outside the tables: the
+  // KPI tiles and over-80% banner on ผลลัพธ์, the tab badge, both empty
+  // states, and the Timesheet tab's "already edited" strip.
+  function renderStatus() {
+    const k = lastTable1 && lastTable2 ? summaryKpis(lastTable1, lastTable2, OPEX_PCT_ALERT_THRESHOLD) : null;
+    const over = k ? k.overSquads : [];
+    resultsEmpty.hidden = !!k;
+    kpiTiles.hidden = !k;
+    kpiTiles.innerHTML = k
+      ? kpiTileHtml('Squad', String(k.squads), false) +
+        kpiTileHtml('เกิน 80%', String(over.length), over.length > 0) +
+        kpiTileHtml('Man-Day รวม', formatMH(k.totalMD), false) +
+        kpiTileHtml('OPEX รวม', formatPct(k.opexPct), k.opexPct != null && k.opexPct > OPEX_PCT_ALERT_THRESHOLD)
+      : '';
+    resultsOverBanner.hidden = over.length === 0;
+    resultsOverBanner.innerHTML = over.length
+      ? 'มี ' + over.length + ' squad ที่ OPEX เกิน 80%: ' + over.map(escapeHtml).join(', ') + ' <a href="#rebalance">ไปแก้ →</a>'
+      : '';
+    rebalanceBadge.hidden = over.length === 0;
+    rebalanceBadge.textContent = over.length ? String(over.length) : '';
+    rebalanceEmpty.hidden = !rebalanceCard.hidden;
+    // The card is also hidden before any Run / after a new month, so the text
+    // must say what is actually true rather than always "all clear".
+    rebalanceEmpty.innerHTML = !k
+      ? 'ยังไม่มีผลลัพธ์ — ไปที่แท็บ <a href="#timesheet">Timesheet</a> แล้วกด Run'
+      : over.length > 0
+        ? 'กด Run อีกครั้งเพื่อดูคำแนะนำการแก้ squad ที่เกิน 80% (' + over.map(escapeHtml).join(', ') + ') <a href="#timesheet">ไปที่แท็บ Timesheet</a>'
+        : 'ไม่มี squad ที่ OPEX เกิน 80% 🎉';
+    const changed = rebalanceState ? diffTimesheets(rebalanceState.original, timesheetGrid.getRows(), rebalanceState.moves).rows.length : 0;
+    timesheetStrip.hidden = !rebalanceState;
+    timesheetStrip.innerHTML = rebalanceState
+      ? 'แก้ Timesheet จากหน้าแก้เกิน 80% แล้ว — ช่องที่เปลี่ยน ' + changed + ' ช่อง (สีเหลือง) <a href="#rebalance">ไปหน้าแก้เกิน 80% →</a>'
+      : '';
+  }
+
+  function kpiTileHtml(label, value, alert) {
+    return '<div class="kpi' + (alert ? ' kpi-alert' : '') + '"><div class="kpi-label">' + escapeHtml(label) +
+      '</div><div class="kpi-value">' + escapeHtml(value) + '</div></div>';
+  }
+
+  // A Run that built the tables goes to the results tab; one that stopped on
+  // an error stays put (the error banner is visible on every tab).
+  runBtn.addEventListener('click', () => {
+    refresh({ replan: true });
+    if (lastTable2) goToView('results');
+  });
 
   // After Apply, editing the timesheet refreshes tables, summary, history and
   // highlights on its own — 300 ms after the last keystroke, so typing a
@@ -2610,12 +2758,45 @@ if (typeof module !== 'undefined' && module.exports) {
   downloadTable1Btn.addEventListener('click', () => downloadRows(lastTable1Rows, 'wo-summary'));
   downloadTable2Btn.addEventListener('click', () => downloadRows(lastTable2Rows, 'wo-percent'));
 
+  // -- Views (tabs) -----------------------------------------------------------
+  // One view visible at a time, picked by location.hash — so a reload keeps
+  // the tab and the browser's Back button moves between tabs.
+  const VIEWS = ['timesheet', 'results', 'rebalance', 'settings'];
+  let shownView = null;
+  const viewEls = Array.from(document.querySelectorAll('section.view'));
+  const viewLinks = Array.from(document.querySelectorAll('[data-view-link]'));
+  function currentViewFromHash() {
+    const name = location.hash.replace(/^#/, '');
+    return VIEWS.indexOf(name) >= 0 ? name : 'timesheet';
+  }
+  function showView(name) {
+    const changed = name !== shownView;
+    shownView = name;
+    viewEls.forEach(el => { el.hidden = el.dataset.view !== name; });
+    viewLinks.forEach(a => {
+      const on = a.dataset.viewLink === name;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+    // The Run button sits at the bottom of a long tab; without this the new
+    // tab would open scrolled down, hiding its top.
+    if (changed) window.scrollTo(0, 0);
+  }
+  function goToView(name) {
+    if (location.hash !== '#' + name) location.hash = name;
+    showView(name);
+  }
+  window.addEventListener('hashchange', () => showView(currentViewFromHash()));
+  showView(currentViewFromHash());
+
   // Restored rebalance (after a reload): show Undo + the change log without
   // needing Run. Everything they touch is declared above; wrapped so a bad
   // saved state can never break startup.
   if (rebalanceState) {
     try { renderRebalance(); renderChangeLog(); markChangedCells(); } catch (e) { /* ignore */ }
   }
+  renderStatus();
 })();
 </script>
 

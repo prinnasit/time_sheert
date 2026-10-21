@@ -219,6 +219,26 @@ test('DEFAULT_PEOPLE_ROLES: unique names, and every role but Head of Innovation 
   assert.ok(!roleMap['Person X1'] && !roleMap['Person X2'], 'struck-through people must not be listed');
 });
 
+test('summaryKpis counts squads, flags those over the threshold, totals Man-Day and overall OPEX', () => {
+  const r = (sq, wo, category, mh) => ({ sq: sq, woKey: wo, woLabel: wo, woNo: wo, category: category, mh: mh });
+  const cl = [r('S1', 'C1', 'CAPEX', 8), r('S1', 'O1', 'OPEX', 72), r('S2', 'C1', 'CAPEX', 8), r('S2', 'O1', 'OPEX', 8), r('S2', 'Z01', 'NON_CHARGE', 8)];
+  const k = App.summaryKpis(App.buildTable1(cl), App.buildTable2(cl), 0.8);
+  assert.strictEqual(k.squads, 2);
+  assert.deepStrictEqual(k.overSquads, ['S1']);
+  assert.strictEqual(k.totalMD, 13); // 104 MH / 8
+  assert.ok(Math.abs(k.opexPct - 80 / 96) < 1e-12);
+});
+
+test('summaryKpis: exactly 80% is not over; no CAPEX/OPEX gives opexPct null', () => {
+  const r = (sq, wo, category, mh) => ({ sq: sq, woKey: wo, woLabel: wo, woNo: wo, category: category, mh: mh });
+  const at80 = [r('S1', 'C1', 'CAPEX', 2), r('S1', 'O1', 'OPEX', 8)];
+  assert.deepStrictEqual(App.summaryKpis(App.buildTable1(at80), App.buildTable2(at80), 0.8).overSquads, []);
+  const nc = [r('S1', 'Z01', 'NON_CHARGE', 8)];
+  const k = App.summaryKpis(App.buildTable1(nc), App.buildTable2(nc), 0.8);
+  assert.strictEqual(k.opexPct, null);
+  assert.strictEqual(k.totalMD, 1);
+});
+
 process.on('exit', () => {
   if (failures > 0) {
     console.log(failures + ' failing test(s)');
