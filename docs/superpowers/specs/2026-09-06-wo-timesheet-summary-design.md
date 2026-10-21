@@ -3,6 +3,39 @@
 Date: 2026-09-06
 Source file analyzed: `krungsri.xlsx` (Sheet1, A1:AL49)
 
+> **Status (updated 2026-10-21):** this is the original design. The tool has
+> grown since; where this spec and the current `index.html` disagree, the
+> list below wins. Feature-level history for users is in
+> [`docs/whats-new.md`](../../whats-new.md).
+>
+> - **Input:** the textareas were replaced by Excel-like editable grids
+>   (paste a block into the first cell and it spreads like Excel). WO
+>   Mapping, Role Ceilings and People → Role ship with defaults and a
+>   "คืนค่าเริ่มต้น" button.
+> - **.xlsx upload:** reads from row 3 until the first row with neither Name
+>   nor WO No. (no longer capped at row 13), reads the month from `F2`,
+>   rejects non-xlsx files (magic-byte check).
+> - **Table 1:** values are **Man-Day** (MH ÷ 8). Columns are grouped by
+>   category and sorted by WO No. as plain text (same as `SORT(UNIQUE())`),
+>   with WO No. and WO Name on separate header rows. The `Remaining`
+>   rows **are now in scope**: "Remaining (เดือนที่แล้ว)" is typed (also
+>   editable in the WO Mapping grid) and "Remaining (เดือนนี้)" = last month
+>   − this month's Man-Day; "ขึ้นเดือนใหม่" rolls it forward.
+> - **Table 2:** percent-only (`Squad | CAPEX % | OPEX %`, 2 decimals); the
+>   MH columns were dropped. OPEX % above 80% is red. After a rebalance it
+>   also shows `OPEX % (เดิม)`.
+> - **Copy:** writes coloured HTML (pastes into Excel/Sheets with colours)
+>   plus a TSV fallback. CSV/TSV cells starting with `=`, `+`, `@` get a
+>   leading `'` (formula-injection guard). Duplicate WO No.s in the mapping
+>   are warned about.
+> - **OPEX rebalance** (new): see
+>   [`2026-10-07-opex-rebalance-design.md`](2026-10-07-opex-rebalance-design.md),
+>   [`2026-10-18-opex-rebalance-flow.md`](2026-10-18-opex-rebalance-flow.md) and
+>   [`2026-10-20-editable-rebalance-design.md`](2026-10-20-editable-rebalance-design.md).
+> - **Tests:** `node tests/all.js` (logic + structure) and
+>   `python tests/browser_e2e.py` (Playwright, real browser).
+> - The Google Apps Script companion was removed (2026-10-17).
+
 ## Problem
 
 `krungsri.xlsx` is a monthly timesheet template:

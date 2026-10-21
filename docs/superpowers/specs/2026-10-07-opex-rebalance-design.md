@@ -3,6 +3,11 @@
 Date: 2026-10-07
 Builds on: `2026-09-06-wo-timesheet-summary-design.md`
 Decided in: grilling session 2026-10-06/07 (open questions at the bottom)
+Status (updated 2026-10-21): implemented and merged. The planner
+(eligibility, rounds 1/2, target WO + Remaining, day-level moves) is
+unchanged. The confirm/Apply UI and the change log were later replaced by
+the editable draft in `2026-10-20-editable-rebalance-design.md`; sections
+below that changed carry an **Update** note.
 
 ## Problem
 
@@ -50,13 +55,23 @@ is user-editable, so missing rows can be added in the UI.)
 
 1. **Role Ceilings** grid — `Role | Z01-Z03 | CAPEX | OPEX` (MD). Pre-filled
    with the table above; editable like the WO Mapping grid.
-2. **People → Role** grid — `Name-Surname | Role` (Role is a `<select>` of
-   the roles in the Role Ceilings grid). Names match timesheet
-   `Name-Surname` after trim + case-insensitive compare.
+2. **People → Role** grid — `Name-Surname | Role`. Names match timesheet
+   `Name-Surname` after trim + whitespace collapse + case-insensitive
+   compare. **Update:** Role is a text cell with a `<datalist>` of the roles
+   in Role Ceilings (not a `<select>`), so free text is possible; an unknown
+   role shows up in the skipped list. Pre-filled with a 37-person default
+   list (`DEFAULT_PEOPLE_ROLES`) with a "คืนค่าเริ่มต้น" button; "Head of
+   Innovation" has no ceiling row on purpose, so that timesheet is never
+   edited.
 3. **Working days this month** — numeric field. Auto-filled with the
    Mon–Fri count of the month read from the uploaded `.xlsx` (row 2, `F2`
    date); falls back to the current month when the timesheet was pasted.
-   User can overwrite it.
+   User can overwrite it. **Update:** the value is saved
+   (`woTimesheetSummary.workingDays`); "ขึ้นเดือนใหม่" resets it to the
+   current month.
+
+All three tables also fall back to their defaults when the saved copy is
+empty. The WO Mapping grid got a default too (`DEFAULT_WO_MAPPING`, 14 WOs).
 
 Effective ceiling for a person = table value × (working days ÷ 20).
 
@@ -106,11 +121,14 @@ FTE and OS are both eligible (open question 2).
   "Remaining (เดือนนี้)" below 0, counting every move in the current plan.
   If the default WO lacks budget, fall to the person's next CAPEX WO by MH.
   A WO with no "Remaining (เดือนที่แล้ว)" set has no budget limit.
-- The suggestion shows a dropdown to change the target WO before Apply:
-  the person's own CAPEX WOs first, then other mapped CAPEX WOs (picking
-  one of those adds a new timesheet row for that person). Changing it
-  recomputes that person's plan; if the new WO lacks Remaining budget the
-  line shows an inline error and is excluded from Apply.
+- ~~The suggestion shows a dropdown to change the target WO before Apply.~~
+  **Update:** replaced by the editable draft. Each draft row (person, day,
+  MH, from WO, to CAPEX WO) can be changed, deleted or added; a target WO
+  the person has no row for still creates a new timesheet row. Remaining
+  and CAPEX-ceiling overruns in a hand-edited draft are **warnings** (Apply
+  stays enabled); invalid rows (MH ≤ 0, MH above what the source cell
+  holds, same from/to WO, non-CAPEX target) are **errors** that disable
+  Apply.
 
 ### Day-level move (open question 1)
 
@@ -126,11 +144,20 @@ Daily totals per person never change.
 
 ## Confirm / Apply / Undo
 
-- After Run, if any squad is > 80%, a **Rebalance** card shows one line per
-  person: name, role, squad, OPEX MD vs ceiling, MH to move, from-WO(s),
-  target-WO dropdown. Nothing changes until **Apply**.
+- After Run, if any squad is > 80%, a **Rebalance** card shows the
+  suggestions. Nothing changes until **Apply**. **Update:** the card is now
+  an editable day-level draft with buttons "+ เพิ่มการย้าย",
+  "↻ คำนวณคำแนะนำใหม่", "ทำต่อ (รอบที่ 2)", and a live "ถ้า Apply ตามนี้"
+  preview of each changed squad's CAPEX/OPEX %.
 - **Apply** writes the moves into the timesheet grid, then re-runs Table 1
-  and Table 2.
+  and Table 2. **Update:** after the first Apply, any later edit in the
+  timesheet grid recalculates everything automatically (300 ms debounce),
+  without pressing Run; edited Day cells are highlighted with a "เดิม: …"
+  tooltip.
+- **Update:** after Apply the card also offers "Copy Timesheet ฉบับใหม่"
+  (plain TSV, no header, 36 columns, to paste over the sheet's data rows;
+  warns when Apply appended new rows) and a "CAPEX / OPEX % ต่อ squad
+  (เดิม → ใหม่)" summary with "Copy สรุป CAPEX/OPEX".
 - **Original timesheet** = the grid as it was at the first Apply. Round 2
   Apply and later manual grid edits all count as the "new" version; the
   original stays the first one.
@@ -147,8 +174,11 @@ Daily totals per person never change.
 - **Table 2:** adds `OPEX % (เดิม)` next to the existing columns
   (after-fix CAPEX % / OPEX %). Red highlight applies to the after-fix
   OPEX %.
-- **Change log:** one row per moved cell — name, squad, from WO, to WO,
-  day, MH — with Copy/Download.
+- **Change log:** ~~one row per moved cell — name, squad, from WO, to WO,
+  day, MH~~ **Update:** one row per changed timesheet cell
+  (`diffTimesheets`): Name-Surname, Squad, WO No., Day, เดิม, ใหม่, แก้โดย
+  ("Rebalance" or "แก้เอง"), with Copy/Download CSV. A cell edited back to
+  its original value drops out of the log.
 - **Download timesheet** buttons for both original and new (`.xlsx`, via
   SheetJS which is already loaded).
 
@@ -184,6 +214,12 @@ like the existing builders) so it can be unit tested in `tests/`:
 - working days scaling (e.g. 22 days → ×1.1)
 - xlsx: stops at first row without Name and WO No.; >11 rows read fully
 - Apply → Undo round-trips the grid exactly; state survives reload
+
+**Update:** all of the above are covered — Node unit tests in
+`tests/rebalance.js` (`node tests/all.js`) and a Playwright browser suite in
+`tests/browser_e2e.py` (`python tests/browser_e2e.py`) that drives the real
+page: grids, Run, draft edit/Apply/Continue/Undo, Remaining + New Month,
+downloads, `.xlsx` upload and localStorage persistence.
 
 ## Open questions (provisional answer in use)
 
